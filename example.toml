@@ -1,0 +1,18 @@
+[config]
+run_name = "test1"
+
+[output]
+path = "./output"
+filename_append = "_output.csv"
+
+[images]
+path = "/home/mop/data/UBC/t20-t40"
+file_background = "/home/mop/data/UBC/background_crop.tif"
+file_calibration = "/home/mop/data/UBC/calibration_crop.tif"
+
+[processing]
+algorithm = "v1"
+
+[debugging]
+debug = "True"
+stop_time_sec = "2"
