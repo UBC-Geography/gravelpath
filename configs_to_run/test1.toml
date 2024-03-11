@@ -3,7 +3,8 @@ run_name = "test1"
 
 [output]
 path = "./output"
-filename_append = "_output.csv"
+file_csv_append = "_output.csv"
+file_db_append = "_output.sqlite"
 
 [images]
 path = "/home/mop/data/UBC/t20-t40"

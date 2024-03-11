@@ -3,10 +3,15 @@ run_name = "test1"
 
 [output]
 path = "./output"
-filename_append = "_output.csv"
+file_csv_append = "_output.csv"
+file_db_append = "_output.sqlite"
 
 [images]
 path = "/home/mop/data/UBC/t20-t40"
+crop_left = "10"
+crop_right = "10"
+crop_top = "15"
+crop_bottom = "15"
 file_background = "/home/mop/data/UBC/background_crop.tif"
 file_calibration = "/home/mop/data/UBC/calibration_crop.tif"
 

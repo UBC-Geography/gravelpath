@@ -1,6 +1,6 @@
 import toml
 from pathlib import Path
-from lighttable.imagelooper import ImageLooper
+from lighttable.image_looper import ImageLooper
 
 config_files = Path("configs_to_run").rglob("*.toml")
 
