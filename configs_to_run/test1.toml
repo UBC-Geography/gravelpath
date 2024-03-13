@@ -7,7 +7,7 @@ file_csv_append = "_output.csv"
 file_db_append = "_output.sqlite"
 
 [images]
-path = "/home/mop/data/UBC/t20-t40"
+path = "/home/mop/data/UBC/dof/"
 crop_left = "10"
 crop_right = "10"
 crop_top = "15"

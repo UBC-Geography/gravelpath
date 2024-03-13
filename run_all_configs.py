@@ -1,6 +1,7 @@
 import toml
 from pathlib import Path
 from lighttable.image_looper import ImageLooper
+from lighttable.image_looper_dof import ImageLooperDOF
 
 config_files = Path("configs_to_run").rglob("*.toml")
 
@@ -13,6 +14,6 @@ for cf in config_files:
     Path(c["output"]["path"]).mkdir(parents=True, exist_ok=True)
 
     # run image processing
-    Looper = ImageLooper(c)
+    Looper = ImageLooperDOF(c)
     Looper.run()
     print(f"Finished processing {cf.name}")
