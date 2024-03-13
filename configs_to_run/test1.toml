@@ -15,8 +15,17 @@ crop_bottom = "15"
 file_background = "/home/mop/data/UBC/background_crop.tif"
 file_calibration = "/home/mop/data/UBC/calibration_crop.tif"
 
+[filters]
+filter1 = 'gaussian'
+filter1_window = '1'
+filter2 = 'gaussian'
+filter2_window = '1'
+
+
 [processing]
 algorithm = "v1"
+# algorithm = 'labview_old'
+# algorithm = 'stoastic1'
 
 [debugging]
 debug = "True"
