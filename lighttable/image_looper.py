@@ -124,11 +124,13 @@ class ImageLooper:
     # threshold image to isolate particles
     def threshold_image(self, img):
         # threshold image to isolate particles
+        # TODO: make threshold value configurable
         img = cv2.threshold(img, 220, 255, cv2.THRESH_BINARY_INV)[1]
+        # TODO: make threshold value configurable
         img = cv2.morphologyEx(img, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
+        # TODO: make threshold value configurable
         img = cv2.morphologyEx(img, cv2.MORPH_CLOSE, np.ones((2, 2), np.uint8))
-        # img = cv2.dilate(img, np.ones((3, 3), np.uint8))
-        # img = cv2.erode(img, np.ones((3, 3), np.uint8))
+
         return img
 
     def write_to_sqlite(self, db_file, image_path, particles):
