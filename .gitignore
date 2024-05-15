@@ -1,5 +1,12 @@
 # ignore data folder
 output/
+test_images/
+t00-t20/
+input/
 
+*.tif
+*.pdf
+*.csv
 *.log
 *.sqlite
+*.pyc

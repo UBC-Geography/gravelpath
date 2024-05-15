@@ -2,6 +2,7 @@
 # particles in subsequent images. It is used to measure the size of particles and ultimately
 # to count the number of particles in each image for sediment transport studies.
 # 2024-03-10: Tobias Mueller, initial version
+# 2024-05-08: Sol Leader-cole, adjusted version
 
 import logging
 from pathlib import Path
@@ -31,7 +32,7 @@ class ImageLooper:
     def __init__(self, c):
         self.images = list(Path(c["images"]["path"]).rglob("*.tif"))
 
-        self.file_background = Path(c["images"]["file_background"])
+        self.file_background = Path(c["images"]["background"])
         self.debug = c["debugging"]["debug"] == "True"
         self.c = c
 
@@ -44,12 +45,17 @@ class ImageLooper:
 
         # load calibration image
         self.img_cal = self.load_image_gray(
-            Path(c["images"]["file_calibration"]), crop=False
+            Path(c["images"]["calibration"]), crop=True
         )
 
         # TODO: use calibration image to calculate pixel to mm ratio
+        # need to decide if this is needed, lighttable camera shouldn't change position too much between experiments, can measure manually before running
+        # in alex's experiments dots are 45 pixels apart
 
         self.csv_file = f'{c["config"]["run_name"]}{c["output"]["file_csv_append"]}'
+
+        #setting the pixel value threshold for particles to be detected
+        self.bin_threshold = c['cost_parameters']['binary_threshold']
 
         # set up logging, will be one file per execution
         logging.basicConfig(
@@ -72,18 +78,24 @@ class ImageLooper:
         db.execute("DROP TABLE IF EXISTS particles")
         db.execute("DROP TABLE IF EXISTS images")
         db.execute("DROP TABLE IF EXISTS seconds")
+        db.execute("DROP TABLE IF EXISTS trajectories")
 
         # create table to append particle recognitions
         db.execute(
-            "CREATE TABLE particles (id INTEGER PRIMARY KEY, image TEXT, time REAL, x REAL, y REAL, width REAL, height REAL, area REAL)"
+            "CREATE TABLE particles (id INTEGER PRIMARY KEY, image TEXT, time REAL, x REAL, y REAL, width REAL, height REAL, area REAL, eccentricity REAL)"
         )
         # create table to append per image data
         db.execute(
-            "CREATE TABLE images (id INTEGER PRIMARY KEY, image TEXT, time REAL, particles INTEGER)"
+            "CREATE TABLE images (id INTEGER PRIMARY KEY, image TEXT, time REAL, particles INTEGER, bedload INTEGER)"
         )
         # create table to append per second data
         db.execute(
             "CREATE TABLE seconds (id INTEGER PRIMARY KEY, time REAL, particles INTEGER)"
+        )
+
+         # create table to append trajectory data per particle
+        db.execute(
+            "CREATE TABLE trajectories (id INTEGER PRIMARY KEY, x_init REAL, y_init REAL, area REAL, x_final REAL, y_final REAL, distance, REAL, moving_time REAL, speed REAL, first_frame REAL, last_frame REAL)"
         )
 
         # close database
@@ -124,8 +136,7 @@ class ImageLooper:
     # threshold image to isolate particles
     def threshold_image(self, img):
         # threshold image to isolate particles
-        # TODO: make threshold value configurable
-        img = cv2.threshold(img, 220, 255, cv2.THRESH_BINARY_INV)[1]
+        img = cv2.threshold(img, self.bin_threshold, 255, cv2.THRESH_BINARY_INV)[1]
         # TODO: make threshold value configurable
         img = cv2.morphologyEx(img, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
         # TODO: make threshold value configurable
@@ -133,7 +144,7 @@ class ImageLooper:
 
         return img
 
-    def write_to_sqlite(self, db_file, image_path, particles):
+    def write_to_sqlite(self, db_file, image_path, particles, pixel_length):
 
         # open database
         db = sqlite3.connect(db_file)
@@ -147,15 +158,16 @@ class ImageLooper:
         for particle in particles:
             # add to sqlite database
             db.execute(
-                "INSERT INTO particles (image, time, x, y, width, height, area) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO particles (image, time, x, y, width, height, area, eccentricity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     image_path.as_posix(),
                     float(image_path.stem),
-                    particle.bbox[1],
-                    particle.bbox[0],
-                    particle.bbox[3] - particle.bbox[1],
-                    particle.bbox[2] - particle.bbox[0],
-                    particle.area,
+                    particle.centroid[1],
+                    particle.centroid[0],
+                    (particle.bbox[3] - particle.bbox[1])*pixel_length,
+                    (particle.bbox[2] - particle.bbox[0])*pixel_length,
+                    particle.area * (pixel_length**2),
+                    particle.eccentricity,
                 ),
             )
 
@@ -163,7 +175,7 @@ class ImageLooper:
         db.commit()
         db.close()
 
-    def analyze_image(self, db_file, image_path, img_bg):
+    def analyze_image(self, db_file, image_path, img_bg, pixel_length):
         particles = []
 
         # load image
@@ -172,19 +184,22 @@ class ImageLooper:
         # subtract background
         img = cv2.subtract(img_bg, img)
 
-        # invert grayscale and stretch greyscale between 0 and 255
-        img = cv2.bitwise_not(img)
+
+        # stretch greyscale between 0 and 255
         img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX)
 
         # threshold image to isolate particles
         img = self.threshold_image(img)
+
+        # moving the greyscale inversion to end because it was resulting in the whole image being white when testing
+        img = cv2.bitwise_not(img)
 
         # find consecutive areas of white pixels
         particles = skimage.measure.label(img, background=0)
         particles = skimage.measure.regionprops(particles)
 
         # write to sqlite database
-        self.write_to_sqlite(db_file, image_path, particles)
+        self.write_to_sqlite(db_file, image_path, particles, pixel_length)
 
         df_particles = pd.DataFrame(
             [
@@ -192,19 +207,52 @@ class ImageLooper:
                     "time": float(image_path.stem),
                     "x": particle.centroid[1],
                     "y": particle.centroid[0],
-                    "width": particle.bbox[3] - particle.bbox[1],
-                    "height": particle.bbox[2] - particle.bbox[0],
+                    "width": (particle.bbox[3] - particle.bbox[1])*pixel_length,
+                    "height": (particle.bbox[2] - particle.bbox[0])*pixel_length,
                     "bbox": particle.bbox,
-                    "area": particle.area,
+                    "area": particle.area * (pixel_length**2),
+                    "eccentricity": particle.eccentricity,
                 }
                 for particle in particles
             ]
         )
-        df_particles.sort_values("area", ascending=False, inplace=True)
+        if not(df_particles.empty):
+            df_particles.sort_values("area", ascending=False, inplace=True)
 
         return img, df_particles
 
+    #TODO finish this work
+    def calc_pixel_size(self, img_cal):
+
+        # invert grayscale and stretch greyscale between 0 and 255
+        img_cal = cv2.bitwise_not(img_cal)
+        img_cal = cv2.normalize(img_cal, None, 0, 255, cv2.NORM_MINMAX)
+
+        # find consecutive areas of white pixels
+        dots = skimage.measure.label(img_cal, background=0)
+        dots = skimage.measure.regionprops(dots)
+
+        df_cal = pd.DataFrame(
+            [
+                {"x": dot.centroid[1], 
+                 "y": dot.centroid[0]
+                 }
+                 for dot in dots
+            ]
+        )
+
+        #print(df_cal)
+
+
+        return None
+
     def run(self):
+        #TODO: write code to obtain pixel to mm size
+        pixel_length = self.calc_pixel_size(self.img_cal)
+
+        #TODO speak to tobias about likelihood of this changing if elevation of lighttable camera and table won't change
+        pixel_length = (15/45)
+
         frame_count = 0
         frame_count_total = 0
         tic = time.perf_counter()
@@ -212,7 +260,8 @@ class ImageLooper:
         images = sorted(self.images)
 
         # load background image
-        img_bg = self.load_image_gray(self.file_background, crop=False)
+        img_bg = self.load_image_gray(self.file_background, crop=True)
+
         img_time_start = float(images[0].stem)
         img_time_before = img_time_start
         img_prev = None
@@ -221,7 +270,7 @@ class ImageLooper:
         # loop through images
         for image_path in images:
             img_time = float(image_path.stem)
-            img, df_part_now = self.analyze_image(self.db_file, image_path, img_bg)
+            img, df_part_now = self.analyze_image(self.db_file, image_path, img_bg, pixel_length)
 
             frame_count += 1
             frame_count_total += 1
@@ -238,6 +287,7 @@ class ImageLooper:
 
             img_time_before = img_time
 
+            #displays overlay of particle and its trakcs if "debug" is True, else not needed
             if self.debug:
 
                 lk_params = dict(

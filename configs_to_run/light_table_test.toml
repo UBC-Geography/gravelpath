@@ -1,0 +1,49 @@
+[config]
+run_name = "lighttable_test"
+
+[output]
+path = "./output"
+file_csv_append = "_output.csv"
+file_db_append = "_output.sqlite"
+
+[images]
+path = "/Users/sol/Desktop/lighttable/t00-t20"
+crop_left = "15"
+crop_right = "15"
+crop_top = "15"
+crop_bottom = "15"
+background = "/Users/sol/Desktop/lighttable/background.tif"
+calibration = "/Users/sol/Desktop/lighttable/calibrationImage_20210610.tif"
+
+
+[filters]
+filter1 = 'gaussian'
+filter1_window = '1'
+filter2 = 'gaussian'
+filter2_window = '1'
+
+
+[processing]
+algorithm = "v1"
+# algorithm = 'labview_old'
+# algorithm = 'stoastic1'
+
+[camera]
+framerate = 24
+
+[linking_weight]
+distance = 0.5
+area = 0.5
+eccentricity = 0.1
+
+[cost_parameters]
+max_cost = 300
+max_frames = 3
+binary_threshold = 180
+
+[sediment]
+density = 0.0016
+
+[debugging]
+debug = "False"
+stop_time_sec = "2"
