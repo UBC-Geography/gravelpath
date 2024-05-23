@@ -97,6 +97,11 @@ class Particle_Loop:
 
         for ii in range(new_particle_count):
             
+            #TODO find a way to not get framented data frame. Currently getting warning:
+            # "PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling 
+            # `frame.insert` many times, which has poor performance.  Consider joining all columns at once
+            # using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`"
+
             #computing euclidian distance between every a new particle and every posible old particle 
             distance.insert(ii,f"particle {ii+1}", np.sqrt((particle_properties[ii][0]-recent_df['x_final'])**2 + 
                                 (particle_properties[ii][1]-recent_df['y_final'])**2))
