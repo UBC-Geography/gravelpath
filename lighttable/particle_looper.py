@@ -77,48 +77,57 @@ class Particle_Loop:
         #extract x and y positions of particles
         cur.execute(f"SELECT x,y,area,eccentricity FROM particles WHERE (image = '{image_frame.as_posix()}')")
 
+        #saving list of lists of data extracted
         particle_properties = cur.fetchall()
+
+        #converting lists into a numpy array
+        particle_properties = np.array(particle_properties)
 
         return particle_properties
     
 
     def linking_particles(self, recent_df, particle_properties, current_frame, image_frame):
 
-        #initializing data frames to put cost metrics into, allows matrix of undeterminate size more easily 
-        distance = pd.DataFrame()
-        area_change = pd.DataFrame()
-        eccentricity_change = pd.DataFrame()
-        current_particle = pd.DataFrame(columns = ['UID', 'first_frame', 'x_init', 'y_init', 'area', 'eccentricity', 
-                                                'last_frame', 'x_final', 'y_final', 'count'])
-
         #finding number of new and old partilces
         new_particle_count = len(particle_properties)
         old_particle_count = len(recent_df)
 
+
+        #extracting data for vectorization from recent df
+        x_final = recent_df['x_final'].values
+        y_final = recent_df['y_final'].values
+        areas = recent_df['area'].values
+        eccentricities = recent_df['eccentricity'].values
+
+        # Initialize arrays to store the computed values for vectorization
+        distances = np.zeros((old_particle_count, new_particle_count))        
+        area_changes = np.zeros((old_particle_count, new_particle_count))
+        eccentricity_changes = np.zeros((old_particle_count, new_particle_count))
+
         for ii in range(new_particle_count):
+            # Computing Euclidean distance
+            distances[:,ii] = np.sqrt((particle_properties[ii, 0] - x_final) ** 2 + 
+                                    (particle_properties[ii, 1] - y_final) ** 2)
             
-            #TODO find a way to not get framented data frame. Currently getting warning:
-            # "PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling 
-            # `frame.insert` many times, which has poor performance.  Consider joining all columns at once
-            # using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`"
-
-            #computing euclidian distance between every a new particle and every posible old particle 
-            distance.insert(ii,f"particle {ii+1}", np.sqrt((particle_properties[ii][0]-recent_df['x_final'])**2 + 
-                                (particle_properties[ii][1]-recent_df['y_final'])**2))
-
-            #computing percentage change in area between every a new particle and every posible old particle
-            area_change.insert(ii, f"particle {ii+1}", abs(1-(particle_properties[ii][2]/recent_df['area'])))
+            # Computing percentage change in area
+            area_changes[:,ii] = np.abs(1 - (particle_properties[ii, 2] / areas))
             
-            #computing percentage change in shape between every a new particle and every posible old particle
-            #inserted condition to check for edge case when eccentricity is 0
-            if particle_properties[ii][3] == 0:
-                eccentricity_change.insert(ii, f"particle {ii+1}", abs(1-(0.000001/recent_df['eccentricity'])))
-            else:
-                eccentricity_change.insert(ii, f"particle {ii+1}", abs(1-(particle_properties[ii][3]/recent_df['eccentricity'])))
-    
+            # # Computing percentage change in shape (eccentricity)
+            # if particle_properties[ii, 3] == 0:
+            #     eccentricity_changes[:,ii] = np.abs(1 - (0.000001 / eccentricities))
+            # else:
+            #     eccentricity_changes[:,ii] = np.abs(1 - (particle_properties[ii, 3] / eccentricities))
+
+        # Create DataFrames from the arrays
+        distance_df = pd.DataFrame(distances, columns=[f"particle {ii+1}" for ii in range(new_particle_count)])
+        area_change_df = pd.DataFrame(area_changes, columns=[f"particle {ii+1}" for ii in range(new_particle_count)])
+        # eccentricity_change_df = pd.DataFrame(eccentricity_changes, columns=[f"particle {ii+1}" for ii in range(new_particle_count)])
+        current_particle = pd.DataFrame(columns = ['UID', 'first_frame', 'x_init', 'y_init', 'area', 'eccentricity', 
+                                                'last_frame', 'x_final', 'y_final', 'count'])
+
         #computing the cost matrix
-        cost_matrix = pd.DataFrame((distance * self.distance_weight) + (area_change * self.area_weight)) #+ (eccentricity_change * self.eccentricity_weight))
-        #print(cost_matrix)
+        cost_matrix = pd.DataFrame((distance_df * self.distance_weight) + (area_change_df * self.area_weight)) #+ (eccentricity_change * self.eccentricity_weight))
+       
 
         #solving the cost matrix for the optimal solution (row_ind corresponds to old particles, col_ind corresponds to new particles)
         row_ind, col_ind = lsa(cost_matrix)
