@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import uuid
 from scipy.optimize import linear_sum_assignment as lsa
+import sys
 
 #image importing
 from pathlib import Path
@@ -55,12 +56,28 @@ class Particle_Loop:
         self.max_cost = c['cost_parameters']['max_cost']
         self.max_frames = c['cost_parameters']['max_frames']
  
-        # load calibration image
-        # self.img_cal = self.load_image_gray(
-        #     Path(c["images"]["file_calibration"]), crop=False
-        # )
+        #setting values needed for kalman filter
+        min_normal_float = sys.float_info.min               #smallest possible normal number
+        search_radius = c['cost_parameters']['search_radius']
+        process_noise = (1/3) * search_radius
 
-        #self.
+        #initializing matrices for kalman filter
+        self.evolution_matrix = np.array([[1, 0, 1, 0],     #4x4 matrix for propogating measurements
+                                          [0, 1, 0, 1],
+                                          [0, 0, 1, 0],
+                                          [0, 0, 0, 1]])
+        self.measurement_matrix = np.eye(4)                 #4x4 matrix for propogating measurements
+        self.state_covariance = np.array([[min_normal_float, 0, 0, 0],   #4x4 matrix for state covariance
+                                         [0, min_normal_float, 0, 0],
+                                         [0, 0, min_normal_float, 0],
+                                         [0, 0, 0, min_normal_float]])
+        self.process_covariance = np.eye(4) * process_noise #4x4 matrix for covariance of processing
+        #TODO fix this 
+        #observation_noise = (1/10)*mean_particle_radius
+
+        #self.observation_covariance = np.eye(4)*(observation_noise**2) #4x4 matrix for covariance of measurements
+
+        
 
     def extract_particles(self, db_file, image_frame, particle_df):
         #connecting to the database
@@ -75,7 +92,7 @@ class Particle_Loop:
 
         
         #extract x and y positions of particles
-        cur.execute(f"SELECT x,y,area,eccentricity FROM particles WHERE (image = '{image_frame.as_posix()}')")
+        cur.execute(f"SELECT x,y,area FROM particles WHERE (image = '{image_frame.as_posix()}')")
 
         #saving list of lists of data extracted
         particle_properties = cur.fetchall()
@@ -94,40 +111,70 @@ class Particle_Loop:
 
 
         #extracting data for vectorization from recent df
-        x_final = recent_df['x_final'].values
-        y_final = recent_df['y_final'].values
-        areas = recent_df['area'].values
-        eccentricities = recent_df['eccentricity'].values
+        x_previous = recent_df['x_recent'].values
+        y_previous = recent_df['y_recent'].values
+        x_vel = recent_df['x_velocity'].values
+        y_vel = recent_df['y_velocity'].values
+
+        #setting up array to store predicted positions
+        predicted_positions = np.zeros((old_particle_count, 2))
+
+        #predicting position for each particle in recent_df
+        for ii in range(old_particle_count):
+            #creating state matrix for kalman filter
+            state_matrix = np.array([[x_previous[ii]],
+                                [y_previous[ii]], 
+                                [x_vel[ii]], 
+                                [y_vel[ii]]])
+
+            #predicting positions using kalman filter
+            predicted_state =  self.kalman_predict(state_matrix)
+
+            #saving predicted positions to the array for calculations
+            predicted_positions[ii,0:2] = predicted_state[0:2]
+            recent_df.loc[ii,'x_recent'] = predicted_state[0]
+            recent_df.loc[ii,'y_recent'] = predicted_state[1]
+
+        #logical test to see if any of the predicted positiosn are outside of the image
+        in_frame_test = np.logical_and(abs(recent_df['y_recent']) > self.c['cost_parameters']['prediction_error'], recent_df['y_recent'] < 0)
+        
+        #obtaining the positions of the partiles that are likely outside of the frame
+        if any(in_frame_test):
+            out_of_frame_index = recent_df.index[in_frame_test]
+
+            #takes the particles that are out of frame and inserts their paths to the trajectories database 
+            self.track_particles(self.db_file, recent_df.iloc[out_of_frame_index])
+            
+            #droppping the particles from the recent df
+            recent_df = recent_df.drop(out_of_frame_index, axis = 0)
+
+            #reseting the index of the recent df
+            recent_df = recent_df.reset_index(drop=True)
+    
+        #updating the number of old particles after removing the ones that left the frame
+        old_particle_count = len(recent_df)
 
         # Initialize arrays to store the computed values for vectorization
         distances = np.zeros((old_particle_count, new_particle_count))        
         area_changes = np.zeros((old_particle_count, new_particle_count))
-        eccentricity_changes = np.zeros((old_particle_count, new_particle_count))
 
         for ii in range(new_particle_count):
+
             # Computing Euclidean distance
-            distances[:,ii] = np.sqrt((particle_properties[ii, 0] - x_final) ** 2 + 
-                                    (particle_properties[ii, 1] - y_final) ** 2)
+            distances[:,ii] = np.sqrt((particle_properties[ii, 0] - recent_df['x_recent']) ** 2 + 
+                                      (particle_properties[ii, 1] - recent_df['y_recent']) ** 2)
             
             # Computing percentage change in area
-            area_changes[:,ii] = np.abs(1 - (particle_properties[ii, 2] / areas))
-            
-            # # Computing percentage change in shape (eccentricity)
-            # if particle_properties[ii, 3] == 0:
-            #     eccentricity_changes[:,ii] = np.abs(1 - (0.000001 / eccentricities))
-            # else:
-            #     eccentricity_changes[:,ii] = np.abs(1 - (particle_properties[ii, 3] / eccentricities))
+            area_changes[:,ii] = np.abs(1 - (particle_properties[ii, 2] / recent_df['area']))
 
         # Create DataFrames from the arrays
         distance_df = pd.DataFrame(distances, columns=[f"particle {ii+1}" for ii in range(new_particle_count)])
         area_change_df = pd.DataFrame(area_changes, columns=[f"particle {ii+1}" for ii in range(new_particle_count)])
-        # eccentricity_change_df = pd.DataFrame(eccentricity_changes, columns=[f"particle {ii+1}" for ii in range(new_particle_count)])
-        current_particle = pd.DataFrame(columns = ['UID', 'first_frame', 'x_init', 'y_init', 'area', 'eccentricity', 
-                                                'last_frame', 'x_final', 'y_final', 'count'])
+        current_particle = pd.DataFrame(columns = ['UID', 'first_frame', 'x_init', 'y_init', 'area',
+                                                'last_frame', 'x_recent', 'y_recent', 'count', 'x_velocity', 'y_velocity'])
 
         #computing the cost matrix
-        cost_matrix = pd.DataFrame((distance_df * self.distance_weight) + (area_change_df * self.area_weight)) #+ (eccentricity_change * self.eccentricity_weight))
-       
+        cost_matrix = pd.DataFrame((distance_df * self.distance_weight) + (area_change_df * self.area_weight)) 
 
         #solving the cost matrix for the optimal solution (row_ind corresponds to old particles, col_ind corresponds to new particles)
         row_ind, col_ind = lsa(cost_matrix)
@@ -147,24 +194,31 @@ class Particle_Loop:
             if cost_matrix.iloc[row_ind[ii],col_ind[ii]] < self.max_cost:
 
                 #importing new values into the recent particle df
-                recent_df.loc[row_ind[ii],'x_final'] = int(particle_properties[col_ind[ii]][0])
-                recent_df.loc[row_ind[ii],'y_final'] = int(particle_properties[col_ind[ii]][1])
+                recent_df.loc[row_ind[ii],'x_velocity'] = int(particle_properties[col_ind[ii]][0]) - recent_df.loc[row_ind[ii],'x_recent'] 
+                recent_df.loc[row_ind[ii],'y_velocity'] = int(particle_properties[col_ind[ii]][1]) - recent_df.loc[row_ind[ii],'y_recent'] 
+                recent_df.loc[row_ind[ii],'x_recent'] = int(particle_properties[col_ind[ii]][0])
+                recent_df.loc[row_ind[ii],'y_recent'] = int(particle_properties[col_ind[ii]][1])
                 recent_df.loc[row_ind[ii],'area'] = particle_properties[col_ind[ii]][2]
-                if particle_properties[col_ind[ii]][3] == 0:
-                    recent_df.loc[row_ind[ii], 'eccentricity'] = 0.000001
-                else:
-                    recent_df.loc[row_ind[ii],'eccentricity'] = particle_properties[col_ind[ii]][3]
                 recent_df.loc[row_ind[ii],'last_frame'] = image_frame
                 recent_df.loc[row_ind[ii],'count'] = 1
 
-            else:
-                #TODO determine if we need to update with possible position
+            # #if the particle was not linked to another particle and the predicted position is out of frame then we should send the particle 
+            # #data to trajectories and remove it from the recent df as it will definitely be out of frame by the next image
+            # elif recent_df.loc[row_ind[ii], 'y_recent'] < 0: 
+            #     #sending the data to the sqlite database
+            #     print(recent_df.iloc[ii])
+            #     self.track_particles(self.db_file, recent_df.iloc[ii])
+
+            #     #droppping the particle from the recent df
+            #     recent_df = recent_df.drop(ii, axis = 0)
+
+            else: 
                 recent_df.loc[row_ind[ii],'count'] += 1
 
                 #extracting properties of the new particle          
                 current_particle.loc[0] = [uuid.uuid4(), image_frame, int(particle_properties[col_ind[ii]][0]), int(particle_properties[col_ind[ii]][1]), 
-                                                 particle_properties[col_ind[ii]][2], particle_properties[col_ind[ii]][3],
-                                                 image_frame, int(particle_properties[col_ind[ii]][0]), int(particle_properties[col_ind[ii]][1]), 1]
+                                                 particle_properties[col_ind[ii]][2], image_frame, int(particle_properties[col_ind[ii]][0]),
+                                                   int(particle_properties[col_ind[ii]][1]), 1, 0, 0]
         
                 #appending the new paricle to the recent df
                 recent_df = pd.concat([recent_df, current_particle], ignore_index=True)
@@ -182,8 +236,8 @@ class Particle_Loop:
 
             #extracting properties of the new particle        
             current_particle.loc[0] = [uuid.uuid4(), image_frame, int(particle_properties[ii][0]), int(particle_properties[ii][1]),
-                                             particle_properties[ii][2], particle_properties[ii][3],
-                                             image_frame, int(particle_properties[ii][0]), int(particle_properties[ii][1]), 1]
+                                             particle_properties[ii][2], image_frame, int(particle_properties[ii][0]), 
+                                             int(particle_properties[ii][1]), 1, 0, 0]
             
             #appending the new paricle to the recent df
             recent_df = pd.concat([recent_df, current_particle], ignore_index=True)
@@ -219,7 +273,7 @@ class Particle_Loop:
         if not(to_track.empty):
             for index, row in to_track.iterrows():
                 # add to initial and final positions of tracked particle to sqlite database 
-                distance = np.sqrt(((row['x_final']-row['x_init'])**2) + ((row['y_final']-row['y_init'])**2))
+                distance = np.sqrt(((row['x_recent']-row['x_init'])**2) + ((row['y_recent']-row['y_init'])**2))
                 moving_time = (row['last_frame'] - row['first_frame'])
                 if distance == 0:
                     speed = 0
@@ -231,8 +285,8 @@ class Particle_Loop:
                     (   row['x_init'],
                         row['y_init'],
                         row['area'],
-                        row['x_final'],
-                        row['y_final'],
+                        row['x_recent'],
+                        row['y_recent'],
                         distance, 
                         moving_time,
                         speed,
@@ -251,6 +305,16 @@ class Particle_Loop:
         db.commit()
         db.close()
     
+    def kalman_predict(self, statematrix):
+        predicted_state = np.dot(self.evolution_matrix, statematrix) #4x1 matrix
+        #self.statecovariance = np.add(np.dot(self.evolution_matrix, np.dot(self.state_covariance, self.evolution_matrix.T)), self.process_covariance) #4x4 matrix
+
+        return predicted_state.flatten()
+
+    # #TODO develop updating component of kalman filter
+    # def kalman_update(self,... ):
+
+    #     return ....
 
     def run(self):
         frame_count = 1
@@ -259,8 +323,8 @@ class Particle_Loop:
         images = sorted(self.images)
 
         #create a pandas dataframe to store images taken in the last second
-        recent_df = pd.DataFrame(columns = ['UID', 'first_frame', 'x_init', 'y_init', 'area', 'eccentricity',
-                                                 'last_frame', 'x_final', 'y_final', 'count'])
+        recent_df = pd.DataFrame(columns = ['UID', 'first_frame', 'x_init', 'y_init', 'area',
+                                                 'last_frame', 'x_recent', 'y_recent', 'count', 'x_velocity', 'y_velocity'])
         
         #start timer
         tic = time.perf_counter()
@@ -275,7 +339,6 @@ class Particle_Loop:
 
         for image_path in images:
             particle_properties = self.extract_particles(self.db_file, image_path, recent_df)
-            #print(particle_properties)
 
             #saving image time so it doesn't need to be done each time
             img_time = float(image_path.stem)
@@ -284,7 +347,7 @@ class Particle_Loop:
             if recent_df.empty:
                 for pp in range(len(particle_properties)):
                     recent_df.loc[pp] = [uuid.uuid4(), img_time, int(particle_properties[pp][0]), int(particle_properties[pp][1]), particle_properties[pp][2], 
-                                     particle_properties[pp][3], img_time, int(particle_properties[pp][0]), int(particle_properties[pp][1]), 1]
+                                    img_time, int(particle_properties[pp][0]), int(particle_properties[pp][1]), 1, 0, 0]
                     
                 print(f"{current_frame} was empty")
             

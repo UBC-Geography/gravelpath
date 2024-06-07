@@ -12,8 +12,8 @@ crop_left = "15"
 crop_right = "15"
 crop_top = "15"
 crop_bottom = "15"
-background = "/Users/sol/Desktop/lighttable/background.tif"
-calibration = "/Users/sol/Desktop/lighttable/calibrationImage_20210610.tif"
+background = "/Users/sol/Desktop/lighttable/input/background.tif"
+calibration = "/Users/sol/Desktop/lighttable/input/calibrationImage_20210610.tif"
 
 
 [filters]
@@ -40,6 +40,8 @@ eccentricity = 0.1
 max_cost = 300
 max_frames = 3
 binary_threshold = 180
+search_radius = 500
+prediction_error = 100
 
 [sediment]
 density = 0.0016
