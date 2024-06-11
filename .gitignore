@@ -4,6 +4,8 @@ test_images/
 t00-t20/
 input/
 
+# ignore pycache
+__pycache__/
 *.tif
 *.pdf
 *.csv
