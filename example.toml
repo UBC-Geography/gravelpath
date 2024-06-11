@@ -19,5 +19,5 @@ file_calibration = "/home/mop/data/UBC/calibration_crop.tif"
 algorithm = "v1"
 
 [debugging]
-debug = "True"
+debug = true
 stop_time_sec = "2"

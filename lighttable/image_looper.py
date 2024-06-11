@@ -32,8 +32,8 @@ class ImageLooper:
     def __init__(self, c):
         self.images = list(Path(c["images"]["path"]).rglob("*.tif"))
 
-        self.file_background = Path(c["images"]["background"])
-        self.debug = c["debugging"]["debug"] == "True"
+        self.file_background = Path(c["images"]["file_background"])
+        self.debug = c["debugging"]["debug"] == True
         self.c = c
 
         self.db_file = Path(
@@ -45,7 +45,7 @@ class ImageLooper:
 
         # load calibration image
         self.img_cal = self.load_image_gray(
-            Path(c["images"]["calibration"]), crop=True
+            Path(c["images"]["file_calibration"]), crop=True
         )
 
         # TODO: use calibration image to calculate pixel to mm ratio
@@ -54,8 +54,8 @@ class ImageLooper:
 
         self.csv_file = f'{c["config"]["run_name"]}{c["output"]["file_csv_append"]}'
 
-        #setting the pixel value threshold for particles to be detected
-        self.bin_threshold = c['cost_parameters']['binary_threshold']
+        # setting the pixel value threshold for particles to be detected
+        self.bin_threshold = c["cost_parameters"]["binary_threshold"]
 
         # set up logging, will be one file per execution
         logging.basicConfig(
@@ -93,7 +93,7 @@ class ImageLooper:
             "CREATE TABLE seconds (id INTEGER PRIMARY KEY, time REAL, particles INTEGER)"
         )
 
-         # create table to append trajectory data per particle
+        # create table to append trajectory data per particle
         db.execute(
             "CREATE TABLE trajectories (id INTEGER PRIMARY KEY, x_init REAL, y_init REAL, area REAL, x_final REAL, y_final REAL, distance, REAL, moving_time REAL, speed REAL, first_frame REAL, last_frame REAL)"
         )
@@ -164,8 +164,8 @@ class ImageLooper:
                     float(image_path.stem),
                     particle.centroid[1],
                     particle.centroid[0],
-                    (particle.bbox[3] - particle.bbox[1])*pixel_length,
-                    (particle.bbox[2] - particle.bbox[0])*pixel_length,
+                    (particle.bbox[3] - particle.bbox[1]) * pixel_length,
+                    (particle.bbox[2] - particle.bbox[0]) * pixel_length,
                     particle.area * (pixel_length**2),
                     particle.eccentricity,
                 ),
@@ -183,7 +183,6 @@ class ImageLooper:
 
         # subtract background
         img = cv2.subtract(img_bg, img)
-
 
         # stretch greyscale between 0 and 255
         img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX)
@@ -207,8 +206,8 @@ class ImageLooper:
                     "time": float(image_path.stem),
                     "x": particle.centroid[1],
                     "y": particle.centroid[0],
-                    "width": (particle.bbox[3] - particle.bbox[1])*pixel_length,
-                    "height": (particle.bbox[2] - particle.bbox[0])*pixel_length,
+                    "width": (particle.bbox[3] - particle.bbox[1]) * pixel_length,
+                    "height": (particle.bbox[2] - particle.bbox[0]) * pixel_length,
                     "bbox": particle.bbox,
                     "area": particle.area * (pixel_length**2),
                     "eccentricity": particle.eccentricity,
@@ -216,12 +215,12 @@ class ImageLooper:
                 for particle in particles
             ]
         )
-        if not(df_particles.empty):
+        if not (df_particles.empty):
             df_particles.sort_values("area", ascending=False, inplace=True)
 
         return img, df_particles
 
-    #TODO finish this work
+    # TODO finish this work
     def calc_pixel_size(self, img_cal):
 
         # invert grayscale and stretch greyscale between 0 and 255
@@ -233,25 +232,19 @@ class ImageLooper:
         dots = skimage.measure.regionprops(dots)
 
         df_cal = pd.DataFrame(
-            [
-                {"x": dot.centroid[1], 
-                 "y": dot.centroid[0]
-                 }
-                 for dot in dots
-            ]
+            [{"x": dot.centroid[1], "y": dot.centroid[0]} for dot in dots]
         )
 
-        #print(df_cal)
-
+        # print(df_cal)
 
         return None
 
     def run(self):
-        #TODO: write code to obtain pixel to mm size
+        # TODO: write code to obtain pixel to mm size
         pixel_length = self.calc_pixel_size(self.img_cal)
 
-        #TODO speak to tobias about likelihood of this changing if elevation of lighttable camera and table won't change
-        pixel_length = (15/45)
+        # TODO speak to tobias about likelihood of this changing if elevation of lighttable camera and table won't change
+        pixel_length = 15 / 45
 
         frame_count = 0
         frame_count_total = 0
@@ -260,7 +253,10 @@ class ImageLooper:
         images = sorted(self.images)
 
         # load background image
-        img_bg = self.load_image_gray(self.file_background, crop=True)
+        img_bg = self.load_image_gray(
+            self.file_background,
+            crop=self.c["images"]["crop_background_and_calibration"],
+        )
 
         img_time_start = float(images[0].stem)
         img_time_before = img_time_start
@@ -270,7 +266,9 @@ class ImageLooper:
         # loop through images
         for image_path in images:
             img_time = float(image_path.stem)
-            img, df_part_now = self.analyze_image(self.db_file, image_path, img_bg, pixel_length)
+            img, df_part_now = self.analyze_image(
+                self.db_file, image_path, img_bg, pixel_length
+            )
 
             frame_count += 1
             frame_count_total += 1
@@ -287,7 +285,7 @@ class ImageLooper:
 
             img_time_before = img_time
 
-            #displays overlay of particle and its trakcs if "debug" is True, else not needed
+            # displays overlay of particle and its trakcs if "debug" is True, else not needed
             if self.debug:
 
                 lk_params = dict(
