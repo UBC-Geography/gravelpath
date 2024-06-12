@@ -48,9 +48,9 @@ class Particle_Loop:
         self.fps = c["camera"]["framerate"]
 
         # setting the linking weights from the configuration file
-        self.distance_weight = c["linking_weight"]["distance"]
-        self.area_weight = c["linking_weight"]["area"]
-        self.eccentricity_weight = c["linking_weight"]["eccentricity"]
+        self.distance_weight = c["particle_linker"]["distance_weight"]
+        self.area_weight = c["particle_linker"]["area_weight"]
+        self.eccentricity_weight = c["particle_linker"]["eccentricity_weight"]
 
         # setting the cost parameters
         self.max_cost = c["cost_parameters"]["max_cost"]

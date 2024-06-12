@@ -19,17 +19,36 @@ crop_background_and_calibration = false
 [camera]
 framerate = 24
 
-[linking_weight]
-distance = 0.5
-area = 0.5
-eccentricity = 0.1
+[particle_linker]
+algorithm = "simple_filter"
+distance_weight = 0.5
+area_weight = 0.5
+eccentricity_weight = 0.1
 
 [cost_parameters]
 max_cost = 300
 max_frames = 3
-binary_threshold = 180
+binary_threshold = 128
 
 [sediment]
+# output particle size classes
+classes = [
+    0.5,
+    0.71,
+    1.0,
+    1.4,
+    2.0,
+    2.83,
+    4.0,
+    5.6,
+    8.0,
+    11.3,
+    16.0,
+    22.6,
+    32.3,
+    45.0,
+    64.0,
+]
 density = 0.0016
 
 [debugging]

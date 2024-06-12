@@ -25,37 +25,42 @@ import pandas as pd
 # plotting
 from matplotlib import pyplot as plt
 
+# particle linking
+from lighttable.particle_linker.simple_filter import ParticleLinker
+
 logger = logging.getLogger(__name__)
 
 
 class ImageLooper:
-    def __init__(self, c):
-        self.images = list(Path(c["images"]["path"]).rglob("*.tif"))
+    def __init__(self, config):
+        self.images = list(Path(config["images"]["path"]).rglob("*.tif"))
 
-        self.file_background = Path(c["images"]["file_background"])
-        self.debug = c["debugging"]["debug"] == True
-        self.c = c
+        self.file_background = Path(config["images"]["file_background"])
+        self.debug = config["debugging"]["debug"] == True
+        self.config = config
 
         self.db_file = Path(
-            c["output"]["path"],
-            f'{c["config"]["run_name"]}{c["output"]["file_db_append"]}',
+            config["output"]["path"],
+            f'{config["config"]["run_name"]}{config["output"]["file_db_append"]}',
         )
         # create database
         self.create_db(self.db_file)
 
         # load calibration image
         self.img_cal = self.load_image_gray(
-            Path(c["images"]["file_calibration"]), crop=True
+            Path(config["images"]["file_calibration"]), crop=True
         )
 
         # TODO: use calibration image to calculate pixel to mm ratio
         # need to decide if this is needed, lighttable camera shouldn't change position too much between experiments, can measure manually before running
         # in alex's experiments dots are 45 pixels apart
 
-        self.csv_file = f'{c["config"]["run_name"]}{c["output"]["file_csv_append"]}'
+        self.csv_file = (
+            f'{config["config"]["run_name"]}{config["output"]["file_csv_append"]}'
+        )
 
         # setting the pixel value threshold for particles to be detected
-        self.bin_threshold = c["cost_parameters"]["binary_threshold"]
+        self.bin_threshold = config["cost_parameters"]["binary_threshold"]
 
         # set up logging, will be one file per execution
         logging.basicConfig(
@@ -111,10 +116,10 @@ class ImageLooper:
 
         # crop image to background-image area
         if crop:
-            crop_left = int(self.c["images"]["crop_left"])
-            crop_right = int(self.c["images"]["crop_right"])
-            crop_top = int(self.c["images"]["crop_top"])
-            crop_bottom = int(self.c["images"]["crop_bottom"])
+            crop_left = int(self.config["images"]["crop_left"])
+            crop_right = int(self.config["images"]["crop_right"])
+            crop_top = int(self.config["images"]["crop_top"])
+            crop_bottom = int(self.config["images"]["crop_bottom"])
             img = img[
                 crop_top : img.shape[0] - crop_bottom,
                 crop_left : img.shape[1] - crop_right,
@@ -134,9 +139,11 @@ class ImageLooper:
         return img
 
     # threshold image to isolate particles
-    def threshold_image(self, img):
+    def threshold_image(self, img_before):
         # threshold image to isolate particles
-        img = cv2.threshold(img, self.bin_threshold, 255, cv2.THRESH_BINARY_INV)[1]
+        img = cv2.threshold(img_before, self.bin_threshold, 255, cv2.THRESH_BINARY_INV)[
+            1
+        ]
         # TODO: make threshold value configurable
         img = cv2.morphologyEx(img, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
         # TODO: make threshold value configurable
@@ -235,8 +242,6 @@ class ImageLooper:
             [{"x": dot.centroid[1], "y": dot.centroid[0]} for dot in dots]
         )
 
-        # print(df_cal)
-
         return None
 
     def run(self):
@@ -252,10 +257,12 @@ class ImageLooper:
 
         images = sorted(self.images)
 
+        particle_linker = ParticleLinker(self.config)
+
         # load background image
         img_bg = self.load_image_gray(
             self.file_background,
-            crop=self.c["images"]["crop_background_and_calibration"],
+            crop=self.config["images"]["crop_background_and_calibration"],
         )
 
         img_time_start = float(images[0].stem)
@@ -285,54 +292,41 @@ class ImageLooper:
 
             img_time_before = img_time
 
-            # displays overlay of particle and its trakcs if "debug" is True, else not needed
+            # displays overlay of particle "debug" is True, else not needed
             if self.debug:
 
-                lk_params = dict(
-                    winSize=(200, 200),
-                    maxLevel=10,
-                    criteria=(
-                        cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
-                        10,
-                        0.1,
-                    ),
-                )
-
-                feature_params = dict(
-                    maxCorners=100, qualityLevel=0.3, minDistance=100, blockSize=15
-                )
-
                 if img_prev is not None:
-                    p0 = np.float32(df_part_prev[["x", "y"]].values)
-                    p1, st, err = cv2.calcOpticalFlowPyrLK(
-                        img_prev, img, p0, None, **lk_params
-                    )
-                    p0r, st, err = cv2.calcOpticalFlowPyrLK(
-                        img, img_prev, p1, None, **lk_params
-                    )
-                    d = abs(p0 - p0r).reshape(-1, 2).max(-1)
-                    good = d < 1
-
-                    new_tracks = []
-                    for tr, (x, y), good_flag in zip(p0, p1, good):
-                        tr2 = (tr[0], tr[1])
-                        if not good_flag:
-                            continue
-
-                        new_tracks.append(((tr2), (x, y)))
 
                     img_overlay = img.copy()
                     # overlay the previous image
                     img_overlay = cv2.addWeighted(img_overlay, 0.7, img_prev, 0.3, 0)
                     img_overlay = cv2.cvtColor(img_overlay, cv2.COLOR_GRAY2BGR)
 
-                    # draw the flow vectors
-                    cv2.polylines(
-                        img_overlay,
-                        [np.int32(tr) for tr in new_tracks],
-                        isClosed=False,
-                        color=(0, 255, 0),
-                    )
+                    df_out = particle_linker.run(df_part_prev, df_part_now)
+
+                    for index, row_now in df_part_now.iterrows():
+                        cv2.rectangle(
+                            img_overlay,
+                            (row_now["bbox"][1], row_now["bbox"][0]),
+                            (row_now["bbox"][3], row_now["bbox"][2]),
+                            (255, 255, 255),
+                            2,
+                        )
+
+                        # draw lines between the particles
+                        index_prev = df_out.loc[index, "prev_index"]
+                        if index_prev == -1:
+                            continue
+
+                        row_prev = df_part_prev.loc[index_prev]
+                        if row_prev is not None:
+                            cv2.line(
+                                img_overlay,
+                                (int(row_now["x"]), int(row_now["y"])),
+                                (int(row_prev["x"]), int(row_prev["y"])),
+                                (0, 255, 0),
+                                1,
+                            )
 
                     # display the image
                     cv2.imshow("img_overlay", img_overlay)
@@ -340,7 +334,7 @@ class ImageLooper:
                     key = cv2.waitKey(200)
 
                 if (img_time - img_time_start) > int(
-                    self.c["debugging"]["stop_time_sec"]
+                    self.config["debugging"]["stop_time_sec"]
                 ):
                     cv2.waitKey()
                     break
