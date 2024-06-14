@@ -30,6 +30,12 @@ class Particle_Extractor:
         #assigning variable of sediment density in g/mm^3
         self.sediment_density = c['sediment']['density']
 
+        #looking at images to determine the start and end of image recording
+        images = list(Path(c["images"]["path"]).rglob("*.tif"))
+        images = sorted(images)
+        self.time_start = np.floor(float(images[0].stem))
+        self.time_end = np.floor(float(images[-1].stem))
+
     def extract_data(self, db_file):
         
         #connecting to the database
@@ -64,7 +70,9 @@ class Particle_Extractor:
 
         #sort the information so that it is arranged according to the frame it first appears in
         if not(linked_particles.empty):
-            linked_particles.sort_values("first_frame", ascending=False, inplace=True)
+            linked_particles.sort_values("first_frame", ascending=True, inplace=True, ignore_index=True)
+
+        linked_particles.to_csv("particles_data.csv")
 
         return linked_particles
     
@@ -174,42 +182,32 @@ class Particle_Extractor:
     
     def transport_rate(self, linked_particles):
         
+        #creating list of time stamps
+        times = np.arange(self.time_start, self.time_end + 1, 1)
+
         #initialize list to store the moving average & instantaneous transport rate
         moving_avg = []
-        instant_rate = []
+        instant_rate = np.zeros_like(times)
 
-        #finding the time in seconds of the first frame
-        time_stamp = np.floor(linked_particles.loc[0]['first_frame'])
+        for ii, time_stamp in enumerate(times):
+            #get index of each particle who first appears in current second
+            time_stamp_index = linked_particles.index[np.floor(linked_particles['first_frame']) == time_stamp]
 
-        #initialising value to keep current transport rate
-        current_rate = 0
+            #adding information to the instant rate array
+            for index in time_stamp_index:
+                instant_rate[ii] += linked_particles.loc[index]['mass']
 
-        for index in range(len(linked_particles)):
-            if np.floor(linked_particles.loc[index]['first_frame']) == time_stamp:
-                #adding information to the transport rate
-                current_rate += linked_particles.loc[index]['mass']
-
-            else: 
-                #adding info to the lists
-                instant_rate.append(current_rate)
-                moving_avg.append(np.mean(instant_rate))
-
-                #updating time stamp for the new second
-                time_stamp = np.floor(linked_particles.loc[index]['first_frame'])
-
-                #adding data to the transport rate
-                current_rate = linked_particles.loc[index]['mass']
-
-        #adding final information to the lists
-        instant_rate.append(current_rate)
-        moving_avg.append(np.mean(instant_rate))
-
-        return instant_rate, moving_avg
+        return instant_rate, moving_avg, times
     
-    def export_data(self, gsd, instant_rate, moving_avg):
+    def export_data(self, gsd, instant_rate, moving_avg, times):
         
         #export gsd csv
         gsd.to_csv(f"{self.c['output']['path']}/gsd.csv")
+
+        #export transport rate csv
+        # instant_rate = np.array(instant_rate)
+        transport_rate = np.stack((times, instant_rate), axis=1)
+        np.savetxt(f"{self.c['output']['path']}/transport_rate.csv", transport_rate)
 
         #plotting gsd histogram
         plt.bar(gsd.columns, gsd.loc['fraction'])
@@ -235,7 +233,7 @@ class Particle_Extractor:
         plt.yscale("log")
         plt.xlabel("Time (s)")
         plt.legend()
-        plt.title(f"{self.c['config']['run_name']} Sediment Tansport")
+        plt.title(f"{self.c['config']['run_name']} Sediment Transport")
         plt.savefig(f"{self.c['output']['path']}/sediment_transport_rate.pdf", )
         plt.clf()
 
@@ -245,17 +243,19 @@ class Particle_Extractor:
         linked_particles = self.extract_data(self.db_file)
         
         #calculating the grain size 
+        print("Starting to calculate the grain sizes")
         linked_particles = self.calc_grain_size(linked_particles)
    
         #bin sediment into grain sizes
         gsd = self.calc_gsd(linked_particles)
 
         #calculating sediment transport rate
-        instant_rate, moving_avg = self.transport_rate(linked_particles)
+        print("Starting to calculate the sediment transport rate")
+        instant_rate, moving_avg, times = self.transport_rate(linked_particles)
 
         Di_df = self.cacl_Di(gsd)
 
         #TODO save csv of grain size distribution & D50, D90, etc. 
-        self.export_data(gsd, instant_rate, moving_avg)
+        self.export_data(gsd, instant_rate, moving_avg, times)
 
         #TODO figure out how to calculate D90, D84, etc. from the GSD
