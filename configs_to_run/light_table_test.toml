@@ -20,7 +20,7 @@ crop_background_and_calibration = false
 framerate = 24
 
 [particle_linker]
-algorithm = "simple_filter"
+algorithms = ["Narrow_Filter", "No_Filter"] # "Simple_LAP", "Kalman_Filter"
 distance_weight = 0.5
 area_weight = 0.5
 eccentricity_weight = 0.1
