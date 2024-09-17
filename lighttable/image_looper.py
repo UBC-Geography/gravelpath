@@ -2,7 +2,7 @@
 # particles in subsequent images. It is used to measure the size of particles and ultimately
 # to count the number of particles in each image for sediment transport studies.
 # 2024-03-10: Tobias Mueller, initial version
-# 2024-05-08: Sol Leader-cole, adjusted version
+# 2024-09-17: Sol Leader-cole, adjusted version
 
 import logging
 from pathlib import Path
@@ -26,7 +26,7 @@ import pandas as pd
 from matplotlib import pyplot as plt
 
 # particle linking
-from lighttable.particle_linker.simple_filter import ParticleLinker
+#from lighttable.particle_linker.simple_filter import ParticleLinker
 
 logger = logging.getLogger(__name__)
 
@@ -145,9 +145,9 @@ class ImageLooper:
             1
         ]
         # TODO: make threshold value configurable
-        img = cv2.morphologyEx(img, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
+        img = cv2.morphologyEx(img, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
         # TODO: make threshold value configurable
-        img = cv2.morphologyEx(img, cv2.MORPH_CLOSE, np.ones((2, 2), np.uint8))
+        img = cv2.morphologyEx(img, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
 
         return img
 
@@ -186,7 +186,7 @@ class ImageLooper:
         particles = []
 
         # load image
-        img = self.load_image_gray(image_path, crop=True)
+        img = self.load_image_gray(image_path, crop=False)
 
         # subtract background
         img = cv2.subtract(img_bg, img)
@@ -257,13 +257,10 @@ class ImageLooper:
 
         images = sorted(self.images)
 
-        particle_linker = ParticleLinker(self.config)
-
         # load background image
-        img_bg = self.load_image_gray(
-            self.file_background,
-            crop=self.config["images"]["crop_background_and_calibration"],
-        )
+        img_bg = self.load_image_gray(self.file_background, crop=False)
+
+        #particle_linker = ParticleLinker(self.config)
 
         img_time_start = float(images[0].stem)
         img_time_before = img_time_start
@@ -292,56 +289,38 @@ class ImageLooper:
 
             img_time_before = img_time
 
-            # displays overlay of particle "debug" is True, else not needed
+            # displays overlay of particle if "debug" is True, else not needed
             if self.debug:
 
                 if img_prev is not None:
+                    
+                    #using the original image and the thresholded particles
+                    original_image = self.load_image_gray(image_path)
+                    thresholded_image = img.copy()
 
-                    img_overlay = img.copy()
-                    # overlay the previous image
-                    img_overlay = cv2.addWeighted(img_overlay, 0.7, img_prev, 0.3, 0)
-                    img_overlay = cv2.cvtColor(img_overlay, cv2.COLOR_GRAY2BGR)
+                    #convert the original image to color
+                    original_image = cv2.cvtColor(original_image, cv2.COLOR_GRAY2BGR)
 
-                    df_out = particle_linker.run(df_part_prev, df_part_now)
-
-                    for index, row_now in df_part_now.iterrows():
-                        cv2.rectangle(
-                            img_overlay,
-                            (row_now["bbox"][1], row_now["bbox"][0]),
-                            (row_now["bbox"][3], row_now["bbox"][2]),
-                            (255, 255, 255),
-                            2,
-                        )
-
-                        # draw lines between the particles
-                        index_prev = df_out.loc[index, "prev_index"]
-                        if index_prev == -1:
-                            continue
-
-                        row_prev = df_part_prev.loc[index_prev]
-                        if row_prev is not None:
-                            cv2.line(
-                                img_overlay,
-                                (int(row_now["x"]), int(row_now["y"])),
-                                (int(row_prev["x"]), int(row_prev["y"])),
-                                (0, 255, 0),
-                                1,
-                            )
+                    #convert the thresholded particles to red
+                    thresholded_image = cv2.cvtColor(thresholded_image, cv2.COLOR_GRAY2BGR)
+                    kernel = np.ones((5,5),np.uint8)
+                    thresholded_image = cv2.morphologyEx(thresholded_image, cv2.MORPH_CLOSE, kernel)
+                    thresholded_image[:, :, 0:2] = 0
 
                     # display the image
-                    cv2.imshow("img_overlay", img_overlay)
+                    cv2.imshow("thresholded_image", thresholded_image)
+                    cv2.imshow("original_image", original_image)
 
-                    key = cv2.waitKey(200)
+                    key = cv2.waitKey(1000)
+                    cv2.waitKey(0)
 
-                if (img_time - img_time_start) > int(
-                    self.config["debugging"]["stop_time_sec"]
+                    # input("Press Enter to see next image")
+
+                if (frame_count) > int(
+                    self.config["debugging"]["images_to_view"]
                 ):
-                    cv2.waitKey()
-                    break
-
-                key = cv2.waitKey(200)
-                if key == 27:  # if ESC is pressed, exit loop
                     cv2.destroyAllWindows()
+                    cv2.waitKey(1)
+                    self.debug = False
 
                 img_prev = img
-                df_part_prev = df_part_now
