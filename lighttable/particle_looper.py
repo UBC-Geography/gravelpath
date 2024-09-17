@@ -16,12 +16,12 @@ from pathlib import Path
 # databse
 import sqlite3
 
-# for plotting
-import matplotlib.pyplot as plt
-
 # for tracking progress
 import time
 import logging
+
+# for debugging
+import cv2
 
 logger = logging.getLogger(__name__)
 
@@ -91,171 +91,153 @@ class Particle_Loop:
         self, recent_df, particle_properties, current_frame, image_frame
     ):
 
-        # finding number of new and old partilces
+        # finding number of new particles
         new_particle_count = len(particle_properties)
-        old_particle_count = len(recent_df)
 
-        # extracting data for vectorization from recent df
-        x_final = recent_df["x_final"].values
-        y_final = recent_df["y_final"].values
-        areas = recent_df["area"].values
-        eccentricities = recent_df["eccentricity"].values
+        #if there are no new particles update index counter of all the particles
+        if new_particle_count == 0:
+            recent_df['count'] += 1
 
-        # Initialize arrays to store the computed values for vectorization
-        distances = np.zeros((old_particle_count, new_particle_count))
-        area_changes = np.zeros((old_particle_count, new_particle_count))
-        eccentricity_changes = np.zeros((old_particle_count, new_particle_count))
+        else:            
+            #sort current particles by y position
+            particle_properties = particle_properties[particle_properties[:,1].argsort()[::-1]]
 
-        for ii in range(new_particle_count):
-            # Computing Euclidean distance
-            distances[:, ii] = np.sqrt(
-                (particle_properties[ii, 0] - x_final) ** 2
-                + (particle_properties[ii, 1] - y_final) ** 2
-            )
+            #sort recent_df by y position
+            recent_df.sort_values(by="y_final", inplace=True, ascending=True)
 
-            # Computing percentage change in area
-            area_changes[:, ii] = np.abs(1 - (particle_properties[ii, 2] / areas))
+            #empty list for storing the index of particles that left the lighttable
+            particles_out_of_frame = []
 
-            # # Computing percentage change in shape (eccentricity)
-            # if particle_properties[ii, 3] == 0:
-            #     eccentricity_changes[:,ii] = np.abs(1 - (0.000001 / eccentricities))
-            # else:
-            #     eccentricity_changes[:,ii] = np.abs(1 - (particle_properties[ii, 3] / eccentricities))
+            #iterate through recent_df and remove particles that have no particles beyond them (i.e. they are furthest up the screen)
+            for index, current_row in recent_df.iterrows():
+                
+                #list of particles beyond the particle position stored in the dataframe
+                current_possible_particles = particle_properties[particle_properties[:,1] < current_row["y_final"]]
 
-        # Create DataFrames from the arrays
-        distance_df = pd.DataFrame(
-            distances, columns=[f"particle {ii+1}" for ii in range(new_particle_count)]
-        )
-        area_change_df = pd.DataFrame(
-            area_changes,
-            columns=[f"particle {ii+1}" for ii in range(new_particle_count)],
-        )
-        # eccentricity_change_df = pd.DataFrame(eccentricity_changes, columns=[f"particle {ii+1}" for ii in range(new_particle_count)])
-        current_particle = pd.DataFrame(
-            columns=[
-                "UID",
-                "first_frame",
-                "x_init",
-                "y_init",
-                "area",
-                "eccentricity",
-                "last_frame",
-                "x_final",
-                "y_final",
-                "count",
-            ]
-        )
+                current_possible_particles = np.reshape(current_possible_particles, (-1,4))
 
-        # computing the cost matrix
-        cost_matrix = pd.DataFrame(
-            (distance_df * self.distance_weight) + (area_change_df * self.area_weight)
-        )  # + (eccentricity_change * self.eccentricity_weight))
+                #if no particles are beyond the dataframe particle store it for trajectory tracking later
+                if current_possible_particles.size == 0 or current_row["y_final"] < 200:
+                    particles_out_of_frame.append(index)
+                    continue
+                
+                # #filter out possible particles by area so that they are more than half or less than double the area of the current particle
+                # current_possible_particles = current_possible_particles[np.logical_and(
+                #     current_row["area"] * 2 > current_possible_particles[:,2], 
+                #     current_row["area"] / 2 < current_possible_particles[:,2])]
 
-        # solving the cost matrix for the optimal solution (row_ind corresponds to old particles, col_ind corresponds to new particles)
-        row_ind, col_ind = lsa(cost_matrix)
+                #filter out possible particles by x position so that they have not translated too far laterally
+                #TODO: make this configurable and determine if value needs to scale by particle size or not
+                current_possible_particles = current_possible_particles[np.logical_and(
+                current_row["x_final"] + 4*current_row["area"] > current_possible_particles[:,0],
+                current_row["x_final"] - 4*current_row["area"] < current_possible_particles[:,0])]
 
-        # obtaining a list of old particles that do not have a match
-        lost_particles = list(range(old_particle_count))
-        for ii in row_ind:
-            lost_particles.remove(ii)
+                #if there are no particles after filtering ignore the particle and continue, it may be the case that due to rotation it was no captured in the image
+                #eventually the particle will hit the threshold for missing frames and be removed if necessary
+                if current_possible_particles.size == 0:
+                    recent_df.loc[index, "count"] += 1
+                    continue
 
-        # obtaining a list of new particles
-        new_particles = list(range(new_particle_count))
-        for ii in col_ind:
-            new_particles.remove(ii)
+                #distance calculations
+                distances = np.sqrt((current_row["x_final"] - current_possible_particles[:,0])**2 + 
+                                    (current_row["y_final"] - current_possible_particles[:,1])**2)
+                
+                #area calculations
+                area_change = np.abs(current_possible_particles[:,2] - current_row["area"]) / current_row["area"]
 
-        # linking particles using the cost_matrix
-        for ii in range(len(row_ind)):
-            if cost_matrix.iloc[row_ind[ii], col_ind[ii]] < self.max_cost:
+                #cost matrix
+                cost_matrix = ((distances * self.distance_weight) + (area_change * self.area_weight))
 
-                # importing new values into the recent particle df
-                recent_df.loc[row_ind[ii], "x_final"] = int(
-                    particle_properties[col_ind[ii]][0]
-                )
-                recent_df.loc[row_ind[ii], "y_final"] = int(
-                    particle_properties[col_ind[ii]][1]
-                )
-                recent_df.loc[row_ind[ii], "area"] = particle_properties[col_ind[ii]][2]
-                if particle_properties[col_ind[ii]][3] == 0:
-                    recent_df.loc[row_ind[ii], "eccentricity"] = 0.000001
-                else:
-                    recent_df.loc[row_ind[ii], "eccentricity"] = particle_properties[
-                        col_ind[ii]
-                    ][3]
-                recent_df.loc[row_ind[ii], "last_frame"] = image_frame
-                recent_df.loc[row_ind[ii], "count"] = 1
+                #if the cost matrix is below certain threshold (i.e. all particles are gone) then update counter for recent_df particle
+                if cost_matrix.min() > self.max_cost:
+                    recent_df.loc[index, "count"] += 1
+                    continue
+                
+                #reshape cost matrix to append it
+                cost_matrix = np.reshape(cost_matrix, (len(cost_matrix), 1))
 
-            else:
-                # TODO determine if we need to update with possible position
-                recent_df.loc[row_ind[ii], "count"] += 1
+                #append the cost_matrix to the list of possible particles
+                current_possible_particles = np.append(current_possible_particles, cost_matrix, axis=1)
 
-                # extracting properties of the new particle
-                current_particle.loc[0] = [
-                    uuid.uuid4(),
-                    image_frame,
-                    int(particle_properties[col_ind[ii]][0]),
-                    int(particle_properties[col_ind[ii]][1]),
-                    particle_properties[col_ind[ii]][2],
-                    particle_properties[col_ind[ii]][3],
-                    image_frame,
-                    int(particle_properties[col_ind[ii]][0]),
-                    int(particle_properties[col_ind[ii]][1]),
-                    1,
-                ]
+                #sort cost matrix for lowest cost to link
+                current_possible_particles = current_possible_particles[current_possible_particles[:,4].argsort()]
 
-                # appending the new paricle to the recent df
-                recent_df = pd.concat([recent_df, current_particle], ignore_index=True)
+                #update recent df with new values
+                recent_df.loc[index, "x_final"] = int(current_possible_particles[0,0])
+                recent_df.loc[index, "y_final"] = int(current_possible_particles[0,1])
+                recent_df.loc[index, "area"] = current_possible_particles[0,2]
+                recent_df.loc[index, "last_frame"] = image_frame
+                recent_df.loc[index, "count"] = 1
+ 
+                #remove the particle from the particle_properties array
+                index_to_delete = np.where(np.all(particle_properties == current_possible_particles[0,:4], axis=1))[0]
+                particle_properties = np.delete(particle_properties, index_to_delete, 0)
 
-                # clearing the data from the current_particle df
-                current_particle = current_particle.drop(0)
+            #track the particles that left the image frame
+            self.track_particles(self.db_file, recent_df.iloc[particles_out_of_frame])
 
-        # if matrix is not a square will update counter for the particles in the recent df that didn't match a new one
-        for ii in lost_particles:
-            # TODO update with new positions
-            recent_df.loc[ii, "count"] += 1
-
-        # if matrix is not a square will add the extra particles form the new image to recent df
-        for ii in new_particles:
-
-            # extracting properties of the new particle
-            current_particle.loc[0] = [
-                uuid.uuid4(),
-                image_frame,
-                int(particle_properties[ii][0]),
-                int(particle_properties[ii][1]),
-                particle_properties[ii][2],
-                particle_properties[ii][3],
-                image_frame,
-                int(particle_properties[ii][0]),
-                int(particle_properties[ii][1]),
-                1,
-            ]
-
-            # appending the new paricle to the recent df
-            recent_df = pd.concat([recent_df, current_particle], ignore_index=True)
-
-            # clearing the data from the current_particle df
-            current_particle = current_particle.drop(0)
-
-        # logical test to check if any of the counters reach the max count
-        count_test = np.logical_not(recent_df["count"] <= self.max_frames)
-
-        # if the row reaches the max counter drop the row
-        if any(count_test):
-
-            # obtaining positions where particles have reached the max count
-            count_index = recent_df.index[count_test]
-
-            # takes the particles that are no longer tracked and inserts their paths to the trajectories database
-            self.track_particles(self.db_file, recent_df.iloc[count_index])
-
-            # droppping the particles from the recent df
-            recent_df = recent_df.drop(count_index, axis=0)
+            #droppping the particles from the recent df
+            recent_df = recent_df.drop(particles_out_of_frame, axis=0)
 
             # reseting the index of the recent df
             recent_df = recent_df.reset_index(drop=True)
 
-        return recent_df, cost_matrix
+            #check if there are any leftover measured particles to track
+            if particle_properties.size > 0:
+                
+                #create empty dataframe to store particle values so its easier to append to recent_df
+                current_particle = pd.DataFrame(columns=[
+                    "UID",
+                    "first_frame",
+                    "x_init",
+                    "y_init",
+                    "area",
+                    "eccentricity",
+                    "last_frame",
+                    "x_final",
+                    "y_final",
+                    "count"])
+                
+                #loop through the particles and store their values in recent_df
+                for remaining_particle in particle_properties:
+                    current_particle.loc[0] = [
+                        uuid.uuid4(),
+                        image_frame,
+                        int(remaining_particle[0]),
+                        int(remaining_particle[1]),
+                        remaining_particle[2],
+                        remaining_particle[3],
+                        image_frame,
+                        int(remaining_particle[0]),
+                        int(remaining_particle[1]),
+                        1,
+                    ]
+
+                    # appending the new paricle to the recent df
+                    recent_df = pd.concat([recent_df, current_particle], ignore_index=True)
+
+                    # clearing the data from the current_particle df
+                    current_particle = current_particle.drop(0)
+
+            # logical test to check if any of the counters reach the max count
+            count_test = np.logical_not(recent_df["count"] <= self.max_frames)
+
+            # if the row reaches the max counter drop the row
+            if any(count_test):
+
+                # obtaining positions where particles have reached the max count
+                count_index = recent_df.index[count_test]
+
+                # takes the particles that are no longer tracked and inserts their paths to the trajectories database
+                self.track_particles(self.db_file, recent_df.iloc[count_index])
+
+                # droppping the particles from the recent df
+                recent_df = recent_df.drop(count_index, axis=0)
+
+                # reseting the index of the recent df
+                recent_df = recent_df.reset_index(drop=True)
+
+        return recent_df
 
     def track_particles(self, db_file, to_track):
 
@@ -332,6 +314,15 @@ class Particle_Loop:
         # total number of images in the directory
         frame_count_total = len(images)
 
+        #create previous df to use for debugging
+        prev_df = None
+
+        #save the dimensions of the images for use in debugging
+        img_row, img_col, img_dim = cv2.imread(images[0].as_posix()).shape[0:3]
+
+        #need pixel length for accurate plotting
+        pixel_length = 15 / 45
+
         print("starting to link the particles together")
 
         for image_path in images:
@@ -362,7 +353,7 @@ class Particle_Loop:
                 print(f"{current_frame} was empty")
 
             else:
-                recent_df, cost_matrix = self.linking_particles(
+                recent_df = self.linking_particles(
                     recent_df, particle_properties, current_frame, img_time
                 )
             current_frame += 1
@@ -378,25 +369,61 @@ class Particle_Loop:
                 tic = time.perf_counter()
                 frame_count = 0
 
+
+            # displays overlay of particle if "debug" is True, else not needed
+            if self.debug:
+
+                if prev_df is not None:
+                    
+                    # print(prev_df)
+                    # print(recent_df)
+
+                    #create a black image the same size as the original image
+                    blank_image = np.zeros((img_row, img_col, img_dim))
+
+                    #plot the particles that weren't found in the recent dataframe on the blank image as red particles
+                    lost_particles = prev_df[~prev_df['UID'].isin(recent_df['UID'])]
+
+                    for index, particle in lost_particles.iterrows():
+                        cv2.circle(blank_image, (particle['x_final'], particle['y_final']), int((np.sqrt(particle['area']/np.pi))/(pixel_length**2)), (0,0,255), -1)
+
+                    #plot the new particles that weren't in the previous dataframe on the blank image as green partilces
+                    new_particles = recent_df[~recent_df['UID'].isin(prev_df['UID'])]
+
+                    for index, particle in new_particles.iterrows():
+                        cv2.circle(blank_image, (particle['x_final'], particle['y_final']), int((np.sqrt(particle['area']/np.pi))/(pixel_length**2)), (0,255, 0), -1)
+
+                    #plot the connected particles
+                    linked_partilces = recent_df[recent_df['UID'].isin(prev_df['UID'])]
+
+                    for index, particle in linked_partilces.iterrows():
+                        if particle['count'] > 1:
+                            cv2.circle(blank_image, (particle['x_final'], particle['y_final']), int((np.sqrt(particle['area']/np.pi))/(pixel_length**2)), (0,0,255), -1)
+                        else:
+                            cv2.circle(blank_image, (particle['x_final'], particle['y_final']), int((np.sqrt(particle['area']/np.pi))/(pixel_length**2)), (255, 0, 0), -1)
+                            UID = particle['UID']
+                            # print("This is the linked particle")
+                            # print(prev_df[(prev_df['UID'] == UID)])
+                    
+
+
+                    # display the image
+                    cv2.imshow("tracked particles", blank_image)
+
+                    key = cv2.waitKey(1000)
+                    cv2.waitKey(0)
+
+                    # input("Press Enter to see next image")
+
+                if (frame_count) > int(
+                    self.c["debugging"]["images_to_view"]
+                ):
+                    cv2.destroyAllWindows()
+                    cv2.waitKey(1)
+                    self.debug = False
+
             time_before = img_time
+            prev_df = recent_df
 
         # tracking any particles left in the dataframe after finished looking through all the images
         self.track_particles(self.db_file, recent_df)
-
-
-# need particle's position in every image
-# need overall gsd
-# need gsd at a given time to know sediment transport rate??
-
-# original code gave
-# - bedload transport (g/s)
-# - grain size distribution overall (each particle only represented once)
-# - grain size distribution at a given point in time
-# - particle velocities
-# - particle counts
-# - grain size distributiosn in terms of D15, D50, D80, etc.
-
-
-# removed eccentricity metric from cost matrix as I don't know how to avoid infiinite values when particle is very circular
-
-# TODO ask opinion on thresholding the raw image
