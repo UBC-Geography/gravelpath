@@ -37,6 +37,22 @@ class NarrowFilter:
             f'{c["config"]["run_name"]}{c["output"]["file_db_append"]}',
         )
 
+        # connecting to sqlite database to create table for new data
+        db = sqlite3.connect(self.db_file)
+        
+        #clear database
+        db.execute("DROP TABLE IF EXISTS narrow_filter")
+
+        # create table to append trajectory data per particle
+        db.execute(
+            "CREATE TABLE narrow_filter (id INTEGER PRIMARY KEY, x_init REAL, y_init REAL, area REAL, x_final REAL, y_final REAL, distance, REAL, moving_time REAL, speed REAL, first_frame REAL, last_frame REAL)"
+        )
+
+        #close database
+        db.commit()
+        db.close()
+
+
         # TODO determine if the number of frames needs to initialized here
         # total number of frames needed to look over
         # self.total_frames = c["camera"]["frames"] - 1
@@ -50,7 +66,7 @@ class NarrowFilter:
         # setting the cost parameters
         self.max_cost = c["cost_parameters"]["max_cost"]
         self.max_frames = c["cost_parameters"]["max_frames"]
-          
+
     def extract_particles(self, db_file, image_frame, particle_df):
         # connecting to the database
         db = sqlite3.connect(db_file)
@@ -64,7 +80,7 @@ class NarrowFilter:
 
         # extract x and y positions of particles
         cur.execute(
-            f"SELECT x,y,area,eccentricity FROM particles WHERE (image = '{image_frame.as_posix()}')"
+            f"SELECT x,y,area FROM particles WHERE (image = '{image_frame.as_posix()}')"
         )
 
         # saving list of lists of data extracted
@@ -246,7 +262,7 @@ class NarrowFilter:
                     speed = moving_time / distance
 
                 db.execute(
-                    "INSERT INTO trajectories (x_init, y_init, area, x_final, y_final, distance, moving_time, speed, first_frame, last_frame) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO narrow_filter (x_init, y_init, area, x_final, y_final, distance, moving_time, speed, first_frame, last_frame) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         row["x_init"],
                         row["y_init"],

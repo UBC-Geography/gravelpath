@@ -83,7 +83,6 @@ class ImageLooper:
         db.execute("DROP TABLE IF EXISTS particles")
         db.execute("DROP TABLE IF EXISTS images")
         db.execute("DROP TABLE IF EXISTS seconds")
-        db.execute("DROP TABLE IF EXISTS trajectories")
 
         # create table to append particle recognitions
         db.execute(
@@ -96,11 +95,6 @@ class ImageLooper:
         # create table to append per second data
         db.execute(
             "CREATE TABLE seconds (id INTEGER PRIMARY KEY, time REAL, particles INTEGER)"
-        )
-
-        # create table to append trajectory data per particle
-        db.execute(
-            "CREATE TABLE trajectories (id INTEGER PRIMARY KEY, x_init REAL, y_init REAL, area REAL, x_final REAL, y_final REAL, distance, REAL, moving_time REAL, speed REAL, first_frame REAL, last_frame REAL)"
         )
 
         # close database
