@@ -1,69 +1,200 @@
-# module that contains a routine to link particles between two frames
+#NoFilter
+# simple stores the particle properties of every particle from all the images
+
+# numerical processing
+import numpy as np
 import pandas as pd
-from matplotlib import pyplot as plt
+import uuid
+from scipy.optimize import linear_sum_assignment as lsa
+
+# image importing
+from pathlib import Path
+
+# databse
+import sqlite3
+
+# for tracking progress
+import time
+import logging
+
+logger = logging.getLogger(__name__)
+
+## TODO fix the inputs to the sqlite database to save efficeincy
+## no need to input teh speed or moving distance
 
 
-class ParticleLinker:
-    def __init__(self, config):
-        self.config = config
+class NoFilter:
+    def __init__(self, c):
+        
+        self.images = list(Path(c["images"]["path"]).rglob("*.tif"))
 
-        self.df = pd.DataFrame()
+        self.debug = c["debugging"]["debug"] == True
+        
+        #defining the config file
+        self.c = c
 
-    def run(self, df_prev, df_now):
+        #writing the path to the sqlite database
+        self.db_file = Path(
+            c["output"]["path"],
+            f'{c["config"]["run_name"]}{c["output"]["file_db_append"]}',
+        )
+        
+        # connecting to sqlite database to create table for new data
+        db = sqlite3.connect(self.db_file)
+        
+        #clear database
+        db.execute("DROP TABLE IF EXISTS no_filter")
 
-        df_out = df_now.copy()
+        # create table to append trajectory data per particle
+        db.execute(
+            "CREATE TABLE no_filter (id INTEGER PRIMARY KEY, x_init REAL, y_init REAL, area REAL, x_final REAL, y_final REAL, distance, REAL, moving_time REAL, speed REAL, first_frame REAL, last_frame REAL)"
+        )
 
-        # display the particles
-        for index, row_now in df_now.iterrows():
+        #close database
+        db.commit()
+        db.close()
 
-            df_prev_filtered = df_prev.copy()
+        #setting the linking weights from the configuration file
+        self.distance_weight = c["linking_weight"]["distance"]
+        self.area_weight = c["linking_weight"]["area"]
+        self.eccentricity_weight = c["linking_weight"]["eccentricity"]
+        
+        #setting the cost parameters
+        self.max_cost = c['cost_parameters']['max_cost']
+        self.max_frames = c['cost_parameters']['max_frames']
 
-            # filter out all particles that are less than half or double the area of the current particle
-            df_prev_filtered = df_prev_filtered[
-                (df_prev_filtered["area"] > row_now["area"] / 2)
-                & (df_prev_filtered["area"] < row_now["area"] * 2)
-            ]
+    def extract_particles(self, db_file, image_frame):
+        #connecting to the database
+        db = sqlite3.connect(db_file)
 
-            # filter out all previous particles that have a lower y coordinate than the current particle
-            df_prev_filtered = df_prev_filtered[df_prev_filtered["y"] > row_now["y"]]
+        cur = db.cursor()
+        # Database Configuration
+        # Table: particles -> id, image, time, x, y, width, height, area
+        # Table: images -> id, image, time, particles
+        # Table: seconds -> id, time, particles
+        # Table: XX_filter -> id, x_init, y_init, area, x_final, y_final, distance, moving_time, speed, first_frame, last_frame
 
-            # filter out all previous particles that are translated to far left or right
-            # TODO: make this value configurable
-            df_prev_filtered = df_prev_filtered[
-                (df_prev_filtered["x"] > row_now["x"] - 50)
-                & (df_prev_filtered["x"] < row_now["x"] + 50)
-            ]
+        
+        #extract x and y positions of particles
+        cur.execute(f"SELECT x,y,area FROM particles WHERE (image = '{image_frame.as_posix()}')")
 
-            # cost based on area difference
-            df_prev_filtered["cost_area_diff"] = (
-                abs(df_prev_filtered["area"] - row_now["area"]) / row_now["area"]
-            )
+        #saving list of lists of data extracted
+        particle_properties = cur.fetchall()
 
-            # cost based on x difference
-            df_prev_filtered["cost_x_diff"] = (
-                abs(df_prev_filtered["x"] - row_now["x"]) / row_now["x"]
-            )
+        #converting lists into a numpy array
+        particle_properties = np.array(particle_properties)
 
-            # cost based on y difference (lower)
-            df_prev_filtered["cost_y_diff"] = (
-                abs(df_prev_filtered["y"] - row_now["y"]) / row_now["y"]
-            )
+        return particle_properties
+    
 
-            # sum the costs
-            df_prev_filtered["cost"] = (
-                df_prev_filtered["cost_area_diff"] * 2
-                + df_prev_filtered["cost_x_diff"] * 10
-                + df_prev_filtered["cost_y_diff"]
-            )
+    def linking_particles(self, recent_df, particle_properties, current_frame, image_frame):
 
-            df_prev_filtered.sort_values("cost", ascending=True, inplace=True)
+        
 
-            if df_prev_filtered.empty:
-                df_out.loc[index, "prev_index"] = -1
-                continue
+        return recent_df
+    
+    def track_particles(self, db_file, to_track):
+        
+        #connecting to the database
+        db = sqlite3.connect(db_file)
 
-            # add the best match to the output
-            # TODO: maybe run a second pass to ensure that particles are not double counted
-            df_out.loc[index, "prev_index"] = df_prev_filtered.index[0]
+        if not(to_track.empty):
+            for index, row in to_track.iterrows():
+                # add to initial and final positions of tracked particle to sqlite database 
+                distance = np.sqrt(
+                    ((row['x_recent']-row['x_init'])**2) 
+                    + ((row['y_recent']-row['y_init'])**2)
+                    )
+                moving_time = (row['last_frame'] - row['first_frame'])
+                if distance == 0:
+                    speed = 0
+                else: 
+                    speed = moving_time/distance
 
-        return df_out
+                db.execute(
+                    "INSERT INTO no_filter (x_init, y_init, area, x_final, y_final, distance, moving_time, speed, first_frame, last_frame) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (   row['x_init'],
+                        row['y_init'],
+                        row['area'],
+                        row['x_recent'],
+                        row['y_recent'],
+                        distance, 
+                        moving_time,
+                        speed,
+                        row['first_frame'],
+                        row['last_frame']
+                        ),
+                )
+
+        # Database Configuration
+        # Table: particles -> id, image, time, x, y, width, height, area
+        # Table: images -> id, image, time, particles
+        # Table: seconds -> id, time, particles
+        # Table: trajectories, id, x_init, y_init, area, x_final, y_final, distance, moving_time, speed, first_frame, last_frame
+
+        # close database
+        db.commit()
+        db.close()
+
+    def run(self):
+        frame_count = 1
+        current_frame =1
+
+        images = sorted(self.images)
+
+        #create a pandas dataframe to store images taken in the last second
+        recent_df = pd.DataFrame(columns = ['UID',
+                                            'first_frame',
+                                            'x_init', 
+                                            'y_init', 
+                                            'area',
+                                            'last_frame', 
+                                            'x_recent', 
+                                            'y_recent', 
+                                            'count'])
+        
+        #start timer
+        tic = time.perf_counter()
+
+        #initializing the time of the first image
+        time_before = float(images[0].stem)
+
+        #total number of images in the directory
+        frame_count_total = len(images)
+
+        print("starting to link the particles together")
+
+        for image_path in images:
+            
+            #saving image time so it doesn't need to be done each time
+            img_time = float(image_path.stem)
+            
+            particle_properties = self.extract_particles(self.db_file, image_path)
+
+            for pp in range(len(particle_properties)):
+                recent_df.loc[pp] = [uuid.uuid4(), 
+                                     img_time, 
+                                     int(particle_properties[pp][0]), 
+                                     int(particle_properties[pp][1]), 
+                                     particle_properties[pp][2], 
+                                     img_time, 
+                                     int(particle_properties[pp][0]), 
+                                     int(particle_properties[pp][1]), 
+                                     1]
+                    
+            self.track_particles(self.db_file, recent_df)
+            
+            current_frame += 1 
+            frame_count += 1
+
+            # for every second of the experiment, print the fps and time remaining
+            if np.floor(img_time) != np.floor(time_before):
+                toc = time.perf_counter()
+                fps = frame_count / (toc - tic)
+                logger.info(
+                    f"{img_time}, fps: {fps:.2f}, total frames: {current_frame}/{frame_count_total}, time left: {((frame_count_total - current_frame) / fps) / 60:.2f} min"
+                )
+                tic = time.perf_counter()
+                frame_count = 0
+
+            time_before = img_time

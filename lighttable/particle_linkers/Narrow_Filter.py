@@ -52,12 +52,6 @@ class NarrowFilter:
         db.commit()
         db.close()
 
-
-        # TODO determine if the number of frames needs to initialized here
-        # total number of frames needed to look over
-        # self.total_frames = c["camera"]["frames"] - 1
-        self.fps = c["camera"]["framerate"]
-
         # setting the linking weights from the configuration file
         self.distance_weight = c["particle_linker"]["distance_weight"]
         self.area_weight = c["particle_linker"]["area_weight"]
@@ -67,7 +61,7 @@ class NarrowFilter:
         self.max_cost = c["cost_parameters"]["max_cost"]
         self.max_frames = c["cost_parameters"]["max_frames"]
 
-    def extract_particles(self, db_file, image_frame, particle_df):
+    def extract_particles(self, db_file, image_frame):
         # connecting to the database
         db = sqlite3.connect(db_file)
 
@@ -76,7 +70,7 @@ class NarrowFilter:
         # Table: particles -> id, image, time, x, y, width, height, area
         # Table: images -> id, image, time, particles
         # Table: seconds -> id, time, particles
-        # Table: trajectories, id, x_init, y_init, area, x_final, y_final, distance, moving_time, speed, first_frame, last_frame
+        # Table: XX_filter -> id, x_init, y_init, area, x_final, y_final, distance, moving_time, speed, first_frame, last_frame
 
         # extract x and y positions of particles
         cur.execute(
@@ -92,8 +86,7 @@ class NarrowFilter:
         return particle_properties
 
     def linking_particles(
-        self, recent_df, particle_properties, current_frame, image_frame
-    ):
+        self, recent_df, particle_properties, image_frame):
 
         # finding number of new particles
         new_particle_count = len(particle_properties)
@@ -118,7 +111,7 @@ class NarrowFilter:
                 #list of particles beyond the particle position stored in the dataframe
                 current_possible_particles = particle_properties[particle_properties[:,1] < current_row["y_final"]]
 
-                current_possible_particles = np.reshape(current_possible_particles, (-1,4))
+                current_possible_particles = np.reshape(current_possible_particles, (-1,3))
 
                 #if no particles are beyond the dataframe particle store it for trajectory tracking later
                 if current_possible_particles.size == 0 or current_row["y_final"] < 200:
@@ -164,7 +157,7 @@ class NarrowFilter:
                 current_possible_particles = np.append(current_possible_particles, cost_matrix, axis=1)
 
                 #sort cost matrix for lowest cost to link
-                current_possible_particles = current_possible_particles[current_possible_particles[:,4].argsort()]
+                current_possible_particles = current_possible_particles[current_possible_particles[:,3].argsort()]
 
                 #update recent df with new values
                 recent_df.loc[index, "x_final"] = int(current_possible_particles[0,0])
@@ -174,7 +167,7 @@ class NarrowFilter:
                 recent_df.loc[index, "count"] = 1
  
                 #remove the particle from the particle_properties array
-                index_to_delete = np.where(np.all(particle_properties == current_possible_particles[0,:4], axis=1))[0]
+                index_to_delete = np.where(np.all(particle_properties == current_possible_particles[0,:3], axis=1))[0]
                 particle_properties = np.delete(particle_properties, index_to_delete, 0)
 
             #track the particles that left the image frame
@@ -196,7 +189,6 @@ class NarrowFilter:
                     "x_init",
                     "y_init",
                     "area",
-                    "eccentricity",
                     "last_frame",
                     "x_final",
                     "y_final",
@@ -204,18 +196,15 @@ class NarrowFilter:
                 
                 #loop through the particles and store their values in recent_df
                 for remaining_particle in particle_properties:
-                    current_particle.loc[0] = [
-                        uuid.uuid4(),
-                        image_frame,
-                        int(remaining_particle[0]),
-                        int(remaining_particle[1]),
-                        remaining_particle[2],
-                        remaining_particle[3],
-                        image_frame,
-                        int(remaining_particle[0]),
-                        int(remaining_particle[1]),
-                        1,
-                    ]
+                    current_particle.loc[0] = [uuid.uuid4(),
+                                               image_frame,
+                                               int(remaining_particle[0]),
+                                               int(remaining_particle[1]),
+                                               remaining_particle[2],
+                                               image_frame,
+                                               int(remaining_particle[0]),
+                                               int(remaining_particle[1]),
+                                               1]
 
                     # appending the new paricle to the recent df
                     recent_df = pd.concat([recent_df, current_particle], ignore_index=True)
@@ -263,19 +252,17 @@ class NarrowFilter:
 
                 db.execute(
                     "INSERT INTO narrow_filter (x_init, y_init, area, x_final, y_final, distance, moving_time, speed, first_frame, last_frame) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        row["x_init"],
-                        row["y_init"],
-                        row["area"],
-                        row["x_final"],
-                        row["y_final"],
-                        distance,
-                        moving_time,
-                        speed,
-                        row["first_frame"],
-                        row["last_frame"],
-                    ),
-                )
+                    (row["x_init"],
+                     row["y_init"],
+                     row["area"],
+                     row["x_final"],
+                     row["y_final"],
+                     distance,
+                     moving_time,
+                     speed,
+                     row["first_frame"],
+                     row["last_frame"]
+                     ))
 
         # Database Configuration
         # Table: particles -> id, image, time, x, y, width, height, area
@@ -295,19 +282,15 @@ class NarrowFilter:
 
         # create a pandas dataframe to store images taken in the last second
         recent_df = pd.DataFrame(
-            columns=[
-                "UID",
-                "first_frame",
-                "x_init",
-                "y_init",
-                "area",
-                "eccentricity",
-                "last_frame",
-                "x_final",
-                "y_final",
-                "count",
-            ]
-        )
+            columns=["UID",
+                     "first_frame",
+                     "x_init",
+                     "y_init",
+                     "area",
+                     "last_frame",
+                     "x_final",
+                     "y_final",
+                     "count"])
 
         # start timer
         tic = time.perf_counter()
@@ -330,10 +313,7 @@ class NarrowFilter:
         print("starting to link the particles together")
 
         for image_path in images:
-            particle_properties = self.extract_particles(
-                self.db_file, image_path, recent_df
-            )
-            # print(particle_properties)
+            particle_properties = self.extract_particles(self.db_file, image_path)
 
             # saving image time so it doesn't need to be done each time
             img_time = float(image_path.stem)
@@ -341,25 +321,20 @@ class NarrowFilter:
             # adding data to the data frame if its empty
             if recent_df.empty:
                 for pp in range(len(particle_properties)):
-                    recent_df.loc[pp] = [
-                        uuid.uuid4(),
-                        img_time,
-                        int(particle_properties[pp][0]),
-                        int(particle_properties[pp][1]),
-                        particle_properties[pp][2],
-                        particle_properties[pp][3],
-                        img_time,
-                        int(particle_properties[pp][0]),
-                        int(particle_properties[pp][1]),
-                        1,
-                    ]
+                    recent_df.loc[pp] = [uuid.uuid4(),
+                                         img_time,
+                                         int(particle_properties[pp][0]),
+                                         int(particle_properties[pp][1]),
+                                         particle_properties[pp][2],
+                                         img_time,
+                                         int(particle_properties[pp][0]),
+                                         int(particle_properties[pp][1]),
+                                         1]
 
                 print(f"{current_frame} was empty")
 
             else:
-                recent_df = self.linking_particles(
-                    recent_df, particle_properties, current_frame, img_time
-                )
+                recent_df = self.linking_particles(recent_df, particle_properties, img_time)
             current_frame += 1
             frame_count += 1
 

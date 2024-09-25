@@ -43,22 +43,22 @@ class Particle_Filters:
     def run(self):
         for filter in self.filters:
             if filter == "Narrow_Filter":
-                from particle_linkers.Narrow_Filter import NarrowFilter
+                from lighttable.particle_linkers.Narrow_Filter import NarrowFilter
                 narrow_filter = NarrowFilter(self.c)
                 narrow_filter.run()
 
             if filter == "No_Filter":
-                from particle_linkers.No_Filter import NoFilter
+                from lighttable.particle_linkers.No_Filter import NoFilter
                 no_filter = NoFilter(self.c)
                 no_filter.run()
 
             if filter == "Simple_LAP":
-                from particle_linkers.Simple_LAP import SimpleLAP
+                from lighttable.particle_linkers.Simple_LAP import SimpleLAP
                 simple_lap = SimpleLAP(self.c)
                 simple_lap.run()
 
             if filter == "Kalman_Filter":
-                from particle_linkers.Kalman_Filter import KalmanFilter
+                from lighttable.particle_linkers.Kalman_Filter import KalmanFilter
                 kalman_filter = KalmanFilter(self.c)
                 kalman_filter.run()
            
