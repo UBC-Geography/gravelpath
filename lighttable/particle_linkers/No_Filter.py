@@ -19,10 +19,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-## TODO fix the inputs to the sqlite database to save efficeincy
-## no need to input teh speed or moving distance
-
-
 class NoFilter:
     def __init__(self, c):
         
@@ -47,21 +43,12 @@ class NoFilter:
 
         # create table to append trajectory data per particle
         db.execute(
-            "CREATE TABLE no_filter (id INTEGER PRIMARY KEY, x_init REAL, y_init REAL, area REAL, x_final REAL, y_final REAL, distance, REAL, moving_time REAL, speed REAL, first_frame REAL, last_frame REAL)"
+            "CREATE TABLE no_filter (id INTEGER PRIMARY KEY, x_init REAL, y_init REAL, area REAL, x_final REAL, y_final REAL, first_frame REAL, last_frame REAL)"
         )
 
         #close database
         db.commit()
         db.close()
-
-        #setting the linking weights from the configuration file
-        self.distance_weight = c["linking_weight"]["distance"]
-        self.area_weight = c["linking_weight"]["area"]
-        self.eccentricity_weight = c["linking_weight"]["eccentricity"]
-        
-        #setting the cost parameters
-        self.max_cost = c['cost_parameters']['max_cost']
-        self.max_frames = c['cost_parameters']['max_frames']
 
     def extract_particles(self, db_file, image_frame):
         #connecting to the database
@@ -72,7 +59,7 @@ class NoFilter:
         # Table: particles -> id, image, time, x, y, width, height, area
         # Table: images -> id, image, time, particles
         # Table: seconds -> id, time, particles
-        # Table: XX_filter -> id, x_init, y_init, area, x_final, y_final, distance, moving_time, speed, first_frame, last_frame
+        # Table: XX_filter -> id, x_init, y_init, area, x_final, y_final, first_frame, last_frame
 
         
         #extract x and y positions of particles
@@ -86,13 +73,6 @@ class NoFilter:
 
         return particle_properties
     
-
-    def linking_particles(self, recent_df, particle_properties, current_frame, image_frame):
-
-        
-
-        return recent_df
-    
     def track_particles(self, db_file, to_track):
         
         #connecting to the database
@@ -100,27 +80,13 @@ class NoFilter:
 
         if not(to_track.empty):
             for index, row in to_track.iterrows():
-                # add to initial and final positions of tracked particle to sqlite database 
-                distance = np.sqrt(
-                    ((row['x_recent']-row['x_init'])**2) 
-                    + ((row['y_recent']-row['y_init'])**2)
-                    )
-                moving_time = (row['last_frame'] - row['first_frame'])
-                if distance == 0:
-                    speed = 0
-                else: 
-                    speed = moving_time/distance
-
                 db.execute(
-                    "INSERT INTO no_filter (x_init, y_init, area, x_final, y_final, distance, moving_time, speed, first_frame, last_frame) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO no_filter (x_init, y_init, area, x_final, y_final, first_frame, last_frame) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (   row['x_init'],
                         row['y_init'],
                         row['area'],
                         row['x_recent'],
                         row['y_recent'],
-                        distance, 
-                        moving_time,
-                        speed,
                         row['first_frame'],
                         row['last_frame']
                         ),
@@ -130,7 +96,7 @@ class NoFilter:
         # Table: particles -> id, image, time, x, y, width, height, area
         # Table: images -> id, image, time, particles
         # Table: seconds -> id, time, particles
-        # Table: trajectories, id, x_init, y_init, area, x_final, y_final, distance, moving_time, speed, first_frame, last_frame
+        # Table: XX_filter, id, x_init, y_init, area, x_final, y_final, first_frame, last_frame
 
         # close database
         db.commit()

@@ -30,7 +30,10 @@ class Particle_Extractor:
         #assigning variable of sediment density in g/mm^3
         self.sediment_density = c['sediment']['density']
 
-    def extract_data(self, db_file):
+        # selecting and loading which filters were run
+        self.filters = c['particle_linker']['algorithms']
+
+    def extract_data(self, db_file, algorithm):
         
         #connecting to the database
         db = sqlite3.connect(db_file)
@@ -43,8 +46,8 @@ class Particle_Extractor:
         # Table: trajectories, id, x_init, y_init, area, x_final, y_final, distance, moving_time, speed, first_frame, last_frame
 
         
-        #extract all trajectory information from the trajectories table
-        cur.execute(f"SELECT x_init, y_init, area, x_final, y_final, distance, moving_time, speed, first_frame, last_frame FROM trajectories")
+        #extract all trajectory information from the specific algorithm's table
+        cur.execute(f"SELECT x_init, y_init, area, x_final, y_final, distance, moving_time, speed, first_frame, last_frame FROM {algorithm}")
 
         #save the information to variable trajectories
         trajectories = cur.fetchall()
@@ -206,25 +209,25 @@ class Particle_Extractor:
 
         return instant_rate, moving_avg
     
-    def export_data(self, gsd, instant_rate, moving_avg):
+    def export_data(self, gsd, instant_rate, moving_avg, algorithm):
         
         #export gsd csv
-        gsd.to_csv(f"{self.c['output']['path']}/gsd.csv")
+        gsd.to_csv(f"{self.c['output']['path']}/{algorithm}_gsd.csv")
 
         #plotting gsd histogram
         plt.bar(gsd.columns, gsd.loc['fraction'])
         plt.ylabel("Fraction")
         plt.xlabel("Retaining Sieve Size")
-        plt.title(f"Grain Size Distribution of {self.c['config']['run_name']}")
-        plt.savefig(f"{self.c['output']['path']}/grain_size_distribution.pdf")
+        plt.title(f"Grain Size Distribution of {self.c['config']['run_name']} ({algorithm})")
+        plt.savefig(f"{self.c['output']['path']}/{algorithm}_grain_size_distribution.pdf")
         plt.clf()
         
         #plotting cumulative gsd histogram
         plt.plot(gsd.columns[1:], gsd.loc['cumulative'][1:])
         plt.ylabel("Fraction")
         plt.xlabel("Retaining Sieve Size")
-        plt.title(f"Cumulative Grain Size Distribution of {self.c['config']['run_name']}")
-        plt.savefig(f"{self.c['output']['path']}/cumulative_grain_size_distribution.pdf")
+        plt.title(f"Cumulative Grain Size Distribution of {self.c['config']['run_name']} ({algorithm})")
+        plt.savefig(f"{self.c['output']['path']}/{algorithm}_cumulative_grain_size_distribution.pdf")
         plt.clf()
 
 
@@ -235,27 +238,29 @@ class Particle_Extractor:
         plt.yscale("log")
         plt.xlabel("Time (s)")
         plt.legend()
-        plt.title(f"{self.c['config']['run_name']} Sediment Tansport")
-        plt.savefig(f"{self.c['output']['path']}/sediment_transport_rate.pdf", )
+        plt.title(f"{self.c['config']['run_name']} Sediment Tansport Rate ({algorithm})")
+        plt.savefig(f"{self.c['output']['path']}/{algorithm}_sediment_transport_rate.pdf", )
         plt.clf()
 
     def run(self):
         
-        #extracting the data from the sqlite database
-        linked_particles = self.extract_data(self.db_file)
-        
-        #calculating the grain size 
-        linked_particles = self.calc_grain_size(linked_particles)
-   
-        #bin sediment into grain sizes
-        gsd = self.calc_gsd(linked_particles)
+        for algorithm in self.filters:
 
-        #calculating sediment transport rate
-        instant_rate, moving_avg = self.transport_rate(linked_particles)
+            #extracting the data from the sqlite database
+            linked_particles = self.extract_data(self.db_file, algorithm)
+            
+            #calculating the grain size 
+            linked_particles = self.calc_grain_size(linked_particles)
+    
+            #bin sediment into grain sizes
+            gsd = self.calc_gsd(linked_particles)
 
-        Di_df = self.cacl_Di(gsd)
+            #calculating sediment transport rate
+            instant_rate, moving_avg = self.transport_rate(linked_particles)
 
-        #TODO save csv of grain size distribution & D50, D90, etc. 
-        self.export_data(gsd, instant_rate, moving_avg)
+            Di_df = self.cacl_Di(gsd)
+
+            #TODO save csv of grain size distribution & D50, D90, etc. 
+            self.export_data(gsd, instant_rate, moving_avg, algorithm)
 
         #TODO figure out how to calculate D90, D84, etc. from the GSD

@@ -46,20 +46,20 @@ class SimpleLAP:
 
         # create table to append trajectory data per particle
         db.execute(
-            "CREATE TABLE simple_lap (id INTEGER PRIMARY KEY, x_init REAL, y_init REAL, area REAL, x_final REAL, y_final REAL, distance, REAL, moving_time REAL, speed REAL, first_frame REAL, last_frame REAL)"
+            "CREATE TABLE simple_lap (id INTEGER PRIMARY KEY, x_init REAL, y_init REAL, area REAL, x_final REAL, y_final REAL, first_frame REAL, last_frame REAL)"
         )
 
         #close database
         db.commit()
         db.close()
 
-        #setting the linking weights from the configuration file
-        self.distance_weight = c["linking_weight"]["distance"]
-        self.area_weight = c["linking_weight"]["area"]
-        
-        #setting the cost parameters
-        self.max_cost = c['cost_parameters']['max_cost']
-        self.max_frames = c['cost_parameters']['max_frames']
+        # setting the linking weights from the configuration file
+        self.distance_weight = c["particle_linker"]["distance_weight"]
+        self.area_weight = c["particle_linker"]["area_weight"]
+
+        # setting the cost parameters
+        self.max_cost = c["cost_parameters"]["max_cost"]
+        self.max_frames = c["cost_parameters"]["max_frames"]
 
     def extract_particles(self, db_file, image_frame):
         #connecting to the database
@@ -70,7 +70,7 @@ class SimpleLAP:
         # Table: particles -> id, image, time, x, y, width, height, area
         # Table: images -> id, image, time, particles
         # Table: seconds -> id, time, particles
-        # Table: XX_filter -> id, x_init, y_init, area, x_final, y_final, distance, moving_time, speed, first_frame, last_frame
+        # Table: XX_filter -> id, x_init, y_init, area, x_final, y_final, first_frame, last_frame
 
         #extract x and y positions of particles
         cur.execute(f"SELECT x,y,area FROM particles WHERE (image = '{image_frame.as_posix()}')")
@@ -223,24 +223,13 @@ class SimpleLAP:
 
         if not(to_track.empty):
             for index, row in to_track.iterrows():
-                # add to initial and final positions of tracked particle to sqlite database 
-                distance = np.sqrt(((row['x_final']-row['x_init'])**2) + ((row['y_final']-row['y_init'])**2))
-                moving_time = (row['last_frame'] - row['first_frame'])
-                if distance == 0:
-                    speed = 0
-                else: 
-                    speed = moving_time/distance
-
                 db.execute(
-                    "INSERT INTO trajectories (x_init, y_init, area, x_final, y_final, distance, moving_time, speed, first_frame, last_frame) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO simple_lap (x_init, y_init, area, x_final, y_final, first_frame, last_frame) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (   row['x_init'],
                         row['y_init'],
                         row['area'],
                         row['x_final'],
                         row['y_final'],
-                        distance, 
-                        moving_time,
-                        speed,
                         row['first_frame'],
                         row['last_frame']
                         ))
@@ -249,7 +238,7 @@ class SimpleLAP:
         # Table: particles -> id, image, time, x, y, width, height, area
         # Table: images -> id, image, time, particles
         # Table: seconds -> id, time, particles
-        # Table: trajectories, id, x_init, y_init, area, x_final, y_final, distance, moving_time, speed, first_frame, last_frame
+        # Table: XX_Filter, id, x_init, y_init, area, x_final, y_final, first_frame, last_frame
 
         # close database
         db.commit()
