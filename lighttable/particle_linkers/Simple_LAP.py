@@ -224,7 +224,7 @@ class SimpleLAP:
         if not(to_track.empty):
             for index, row in to_track.iterrows():
                 db.execute(
-                    "INSERT INTO simple_lap (x_init, y_init, area, x_final, y_final, first_frame, last_frame) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO simple_lap (x_init, y_init, area, x_final, y_final, first_frame, last_frame) VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (   row['x_init'],
                         row['y_init'],
                         row['area'],

@@ -43,11 +43,11 @@ class Particle_Extractor:
         # Table: particles -> id, image, time, x, y, width, height, area
         # Table: images -> id, image, time, particles
         # Table: seconds -> id, time, particles
-        # Table: trajectories, id, x_init, y_init, area, x_final, y_final, distance, moving_time, speed, first_frame, last_frame
+        # Table: XX_Filter, id, x_init, y_init, area, x_final, y_final, first_frame, last_frame
 
         
         #extract all trajectory information from the specific algorithm's table
-        cur.execute(f"SELECT x_init, y_init, area, x_final, y_final, distance, moving_time, speed, first_frame, last_frame FROM {algorithm}")
+        cur.execute(f"SELECT x_init, y_init, area, x_final, y_final first_frame, last_frame FROM {algorithm}")
 
         #save the information to variable trajectories
         trajectories = cur.fetchall()
@@ -58,12 +58,11 @@ class Particle_Extractor:
         for particle in trajectories: 
             #insert information into a list of dictionaries
             data_list.append(dict((label,particle[index]) for index,label in enumerate(['x_init', 'y_init', 'area', 'x_final', 'y_final',
-                                                                                        'distance','moving_time', 'speed', 'first_frame', 'last_frame'])))
+                                                                                        'first_frame', 'last_frame'])))
             
         
         #convert the list of dictionaries into a df as it will be easier to manipulate
-        linked_particles = pd.DataFrame(data_list, columns=['x_init', 'y_init', 'area', 'x_final', 'y_final', 'distance',
-                                                         'moving_time', 'speed', 'first_frame', 'last_frame'])
+        linked_particles = pd.DataFrame(data_list, columns=['x_init', 'y_init', 'area', 'x_final', 'y_final', 'first_frame', 'last_frame'])
 
         #sort the information so that it is arranged according to the frame it first appears in
         if not(linked_particles.empty):

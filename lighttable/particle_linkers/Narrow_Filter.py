@@ -239,7 +239,7 @@ class NarrowFilter:
         if not (to_track.empty):
             for index, row in to_track.iterrows():
                 db.execute(
-                    "INSERT INTO narrow_filter (x_init, y_init, area, x_final, y_final, first_frame, last_frame) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO narrow_filter (x_init, y_init, area, x_final, y_final, first_frame, last_frame) VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (row["x_init"],
                      row["y_init"],
                      row["area"],

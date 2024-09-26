@@ -69,21 +69,15 @@ class ImageLooper:
         # clear database
         db.execute("DROP TABLE IF EXISTS particles")
         db.execute("DROP TABLE IF EXISTS images")
-        db.execute("DROP TABLE IF EXISTS seconds")
 
         # create table to append particle recognitions
         db.execute(
-            "CREATE TABLE particles (id INTEGER PRIMARY KEY, image TEXT, time REAL, x REAL, y REAL, width REAL, height REAL, area REAL, eccentricity REAL)"
+            "CREATE TABLE particles (id INTEGER PRIMARY KEY, image TEXT, time REAL, x REAL, y REAL, width REAL, height REAL, area REAL)"
         )
         # create table to append per image data
         db.execute(
             "CREATE TABLE images (id INTEGER PRIMARY KEY, image TEXT, time REAL, particles INTEGER, bedload INTEGER)"
         )
-        # create table to append per second data
-        db.execute(
-            "CREATE TABLE seconds (id INTEGER PRIMARY KEY, time REAL, particles INTEGER)"
-        )
-
         # close database
         db.commit()
         db.close()
@@ -146,7 +140,7 @@ class ImageLooper:
         for particle in particles:
             # add to sqlite database
             db.execute(
-                "INSERT INTO particles (image, time, x, y, width, height, area, eccentricity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO particles (image, time, x, y, width, height, area) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     image_path.as_posix(),
                     float(image_path.stem),
@@ -155,7 +149,6 @@ class ImageLooper:
                     (particle.bbox[3] - particle.bbox[1]) * pixel_length,
                     (particle.bbox[2] - particle.bbox[0]) * pixel_length,
                     particle.area * (pixel_length**2),
-                    particle.eccentricity,
                 ),
             )
 
@@ -198,7 +191,6 @@ class ImageLooper:
                     "height": (particle.bbox[2] - particle.bbox[0]) * pixel_length,
                     "bbox": particle.bbox,
                     "area": particle.area * (pixel_length**2),
-                    "eccentricity": particle.eccentricity,
                 }
                 for particle in particles
             ]
