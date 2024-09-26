@@ -62,19 +62,6 @@ class ImageLooper:
         # setting the pixel value threshold for particles to be detected
         self.bin_threshold = config["cost_parameters"]["binary_threshold"]
 
-        # set up logging, will be one file per execution
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-            handlers=[
-                logging.StreamHandler(),
-                logging.FileHandler(
-                    Path(__file__).parent.parent / "logs" / f"{datetime.now()}.log"
-                ),
-            ],
-        )
-
     def create_db(self, db_file):
 
         db = sqlite3.connect(db_file)
