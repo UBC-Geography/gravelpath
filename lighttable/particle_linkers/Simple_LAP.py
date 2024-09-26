@@ -56,7 +56,6 @@ class SimpleLAP:
         #setting the linking weights from the configuration file
         self.distance_weight = c["linking_weight"]["distance"]
         self.area_weight = c["linking_weight"]["area"]
-        self.eccentricity_weight = c["linking_weight"]["eccentricity"]
         
         #setting the cost parameters
         self.max_cost = c['cost_parameters']['max_cost']
@@ -95,12 +94,11 @@ class SimpleLAP:
         x_final = recent_df['x_final'].values
         y_final = recent_df['y_final'].values
         areas = recent_df['area'].values
-        eccentricities = recent_df['eccentricity'].values
 
         # Initialize arrays to store the computed values for vectorization
         distances = np.zeros((old_particle_count, new_particle_count))        
         area_changes = np.zeros((old_particle_count, new_particle_count))
-        eccentricity_changes = np.zeros((old_particle_count, new_particle_count))
+
 
         for ii in range(new_particle_count):
             # Computing Euclidean distance
@@ -109,12 +107,6 @@ class SimpleLAP:
             
             # Computing percentage change in area
             area_changes[:,ii] = np.abs(1 - (particle_properties[ii, 2] / areas))
-            
-            # # Computing percentage change in shape (eccentricity)
-            # if particle_properties[ii, 3] == 0:
-            #     eccentricity_changes[:,ii] = np.abs(1 - (0.000001 / eccentricities))
-            # else:
-            #     eccentricity_changes[:,ii] = np.abs(1 - (particle_properties[ii, 3] / eccentricities))
 
         # Create DataFrames from the arrays
         distance_df = pd.DataFrame(distances, columns=[f"particle {ii+1}" for ii in range(new_particle_count)])
@@ -126,15 +118,13 @@ class SimpleLAP:
                        'x_init', 
                        'y_init', 
                        'area', 
-                       'eccentricity', 
                        'last_frame', 
                        'x_final', 
                        'y_final', 
                        'count'])
 
         #computing the cost matrix
-        cost_matrix = pd.DataFrame((distance_df * self.distance_weight) + (area_change_df * self.area_weight)) #+ (eccentricity_change * self.eccentricity_weight))
-       
+        cost_matrix = pd.DataFrame((distance_df * self.distance_weight) + (area_change_df * self.area_weight)) 
 
         #solving the cost matrix for the optimal solution (row_ind corresponds to old particles, col_ind corresponds to new particles)
         row_ind, col_ind = lsa(cost_matrix)
@@ -157,10 +147,6 @@ class SimpleLAP:
                 recent_df.loc[row_ind[ii],'x_final'] = int(particle_properties[col_ind[ii]][0])
                 recent_df.loc[row_ind[ii],'y_final'] = int(particle_properties[col_ind[ii]][1])
                 recent_df.loc[row_ind[ii],'area'] = particle_properties[col_ind[ii]][2]
-                if particle_properties[col_ind[ii]][3] == 0:
-                    recent_df.loc[row_ind[ii], 'eccentricity'] = 0.000001
-                else:
-                    recent_df.loc[row_ind[ii],'eccentricity'] = particle_properties[col_ind[ii]][3]
                 recent_df.loc[row_ind[ii],'last_frame'] = image_frame
                 recent_df.loc[row_ind[ii],'count'] = 1
 
@@ -174,7 +160,6 @@ class SimpleLAP:
                                            int(particle_properties[col_ind[ii]][0]), 
                                            int(particle_properties[col_ind[ii]][1]), 
                                            particle_properties[col_ind[ii]][2], 
-                                           particle_properties[col_ind[ii]][3],
                                            image_frame, 
                                            int(particle_properties[col_ind[ii]][0]), 
                                            int(particle_properties[col_ind[ii]][1]), 
@@ -200,7 +185,6 @@ class SimpleLAP:
                                        int(particle_properties[ii][0]), 
                                        int(particle_properties[ii][1]),
                                        particle_properties[ii][2], 
-                                       particle_properties[ii][3],
                                        image_frame, 
                                        int(particle_properties[ii][0]), 
                                        int(particle_properties[ii][1]), 
@@ -285,7 +269,6 @@ class SimpleLAP:
                        'x_init', 
                        'y_init', 
                        'area', 
-                       'eccentricity',
                        'last_frame', 
                        'x_final', 
                        'y_final', 
@@ -299,6 +282,15 @@ class SimpleLAP:
 
         #total number of images in the directory
         frame_count_total = len(images)
+
+        #create previous df to use for debugging
+        prev_df = None
+
+        #save the dimensions of the images for use in debugging
+        img_row, img_col, img_dim = cv2.imread(images[0].as_posix()).shape[0:3]
+
+        #need pixel length for accurate plotting
+        pixel_length = 15 / 45
 
         print("starting to link the particles together")
 
@@ -317,7 +309,6 @@ class SimpleLAP:
                                         int(particle_properties[pp][0]), 
                                         int(particle_properties[pp][1]), 
                                         particle_properties[pp][2], 
-                                        particle_properties[pp][3], 
                                         img_time, 
                                         int(particle_properties[pp][0]), 
                                         int(particle_properties[pp][1]), 
