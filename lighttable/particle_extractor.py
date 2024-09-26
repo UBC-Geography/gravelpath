@@ -15,6 +15,12 @@ import sqlite3
 #for plotting
 import matplotlib.pyplot as plt
 
+#for logging progress
+import logging
+import time
+
+logger = logging.getLogger(__name__)
+
 class Particle_Extractor: 
     def __init__(self, c):
 
@@ -35,6 +41,9 @@ class Particle_Extractor:
 
     def extract_data(self, db_file, algorithm):
         
+        #logging that processing started
+        logger.info(f"Extract data for algorithm: {algorithm}")
+
         #connecting to the database
         db = sqlite3.connect(db_file)
 
@@ -47,10 +56,13 @@ class Particle_Extractor:
 
         
         #extract all trajectory information from the specific algorithm's table
-        cur.execute(f"SELECT x_init, y_init, area, x_final, y_final first_frame, last_frame FROM {algorithm}")
+        cur.execute(f"SELECT x_init, y_init, area, x_final, y_final, first_frame, last_frame FROM {algorithm}")
 
         #save the information to variable trajectories
         trajectories = cur.fetchall()
+
+        #logging number of particles found
+        logger.info(f"Data extract for {algorithm} complete. {len(trajectories)} particles found.")
 
         #empty list to save dictionary of values and labels
         data_list=[]
@@ -70,8 +82,11 @@ class Particle_Extractor:
 
         return linked_particles
     
-    def calc_grain_size(self, linked_particles):
+    def calc_grain_size(self, linked_particles, algorithm):
         
+        #logging that processing started
+        logger.info(f"Calculating grain size for algorithm: {algorithm}")
+
         #calculating the equivalent grain size assuming the particle was circular
         linked_particles['grain_size'] = 2*(np.sqrt(linked_particles['area']/np.pi))
 
@@ -81,10 +96,16 @@ class Particle_Extractor:
         #calculating the particles mass assuming constant density
         linked_particles['mass'] = linked_particles['volume'] * self.sediment_density
 
+        #logging that grain size calculation is finished
+        logger.info("Grain size calculation complete.")
+
         return linked_particles
 
-    def calc_gsd(self, linked_particles):
+    def calc_gsd(self, linked_particles, algorithm):
         
+        #logging that gsd calculation has started
+        logger.info(f"Calculating the grain size distribution for algorithm: {algorithm}")
+
         #create dataframe of zeroes to store particle count and mass
         gsd = pd.DataFrame(np.zeros((4,15)),index=['count', 'mass', 'fraction', 'cumulative'], columns=['pan', '0.5', '0.71', '1', '1.4', '2', '2.83',
                                                                                '4', '5.6', '8', '11.3', '16', '22.6', '32.3', '45'])        
@@ -166,16 +187,16 @@ class Particle_Extractor:
             gsd.loc['cumulative', col] = gsd.loc['fraction', col] + gsd.loc['cumulative', prev_col]
             prev_col = col
 
+        #logging that gsd calculation is complete
+        logger.info("Grain size distribution calculation complete.")
+
         return gsd
     
-    def cacl_Di(self, gsd):
-
-
-        #return Di_df
-        return None
-    
-    def transport_rate(self, linked_particles):
+    def transport_rate(self, linked_particles, algorithm):
         
+        #logging that sediment transport rate calculations have started
+        logger.info(f"Starting to calculate the sediment transport rate for algorithm: {algorithm}")
+
         #initialize list to store the moving average & instantaneous transport rate
         moving_avg = []
         instant_rate = []
@@ -205,6 +226,8 @@ class Particle_Extractor:
         #adding final information to the lists
         instant_rate.append(current_rate)
         moving_avg.append(np.mean(instant_rate))
+
+        logger.info("Sediment transport rate calculations complete")
 
         return instant_rate, moving_avg
     
@@ -249,17 +272,20 @@ class Particle_Extractor:
             linked_particles = self.extract_data(self.db_file, algorithm)
             
             #calculating the grain size 
-            linked_particles = self.calc_grain_size(linked_particles)
+            linked_particles = self.calc_grain_size(linked_particles, algorithm)
     
             #bin sediment into grain sizes
-            gsd = self.calc_gsd(linked_particles)
+            gsd = self.calc_gsd(linked_particles, algorithm)
 
             #calculating sediment transport rate
-            instant_rate, moving_avg = self.transport_rate(linked_particles)
-
-            Di_df = self.cacl_Di(gsd)
+            instant_rate, moving_avg = self.transport_rate(linked_particles, algorithm)
 
             #TODO save csv of grain size distribution & D50, D90, etc. 
             self.export_data(gsd, instant_rate, moving_avg, algorithm)
 
+            print(f"Finished processing {algorithm} data")
+
+
+
         #TODO figure out how to calculate D90, D84, etc. from the GSD
+        #TODO add logging to show users that code is still running
