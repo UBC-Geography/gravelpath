@@ -7,50 +7,52 @@ file_csv_append = "_output.csv"
 file_db_append = "_output.sqlite"
 
 [images]
-path = "/home/mop/data/UBC/t20-t40"
-crop_left = "10"
-crop_right = "10"
-crop_top = "15"
-crop_bottom = "15"
-file_background = "/home/mop/data/UBC/background_crop.tif"
-file_calibration = "/home/mop/data/UBC/calibration_crop.tif"
+path = "/Users/sol/Desktop/lighttable/t00-t20"
+crop_left = "75"
+crop_right = "75"
+crop_top = "25"
+crop_bottom = "100"
+file_background = "/Users/sol/Desktop/lighttable/input/high_transport_background.tif"
+file_calibration = "/Users/sol/Desktop/lighttable/input/calibrationImage_20210610.tif"
 crop_background_and_calibration = false
 
 [camera]
 framerate = 24
 
 [particle_linker]
-algorithms = ["Narrow_Filter", "No_Filter"] # "Simple_LAP", "Kalman_Filter"
+algorithms = ["Simple_LAP", "Narrow_Filter", "No_Filter"] # ["Kalman_Filter"] #
 distance_weight = 0.5
 area_weight = 0.5
 eccentricity_weight = 0.1
 
 [cost_parameters]
-max_cost = 300
+max_cost = 700
 max_frames = 3
 binary_threshold = 128
 
 [sediment]
 # output particle size classes
 classes = [
-    0.5,
-    0.71,
-    1.0,
-    1.4,
-    2.0,
-    2.83,
-    4.0,
-    5.6,
-    8.0,
-    11.3,
-    16.0,
-    22.6,
-    32.3,
-    45.0,
-    64.0,
+    '0.5',
+    '0.71',
+    '1.0',
+    '1.4',
+    '2.0',
+    '2.83',
+    '4.0',
+    '5.6',
+    '8.0',
+    '11.3',
+    '16.0',
+    '22.6',
+    '32.3',
+    '45.0',
+    '64.0',
 ]
 density = 0.0016
+percentiles = [16, 50, 84, 90]
 
 [debugging]
-debug = true
+debug = false # true or false
+images_to_view = 20
 stop_time_sec = "2"
