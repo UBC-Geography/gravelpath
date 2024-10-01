@@ -36,8 +36,14 @@ class Particle_Extractor:
         #assigning variable of sediment density in g/mm^3
         self.sediment_density = c['sediment']['density']
 
+        #loading phi fractions of sediment
+        self.phi_fraction = c['sediment']['classes']
+
         # selecting and loading which filters were run
         self.filters = c['particle_linker']['algorithms']
+
+        #loading the target percentiles
+        self.Di_percentile = c['sediment']['percentiles']
 
     def extract_data(self, db_file, algorithm):
         
@@ -107,8 +113,8 @@ class Particle_Extractor:
         logger.info(f"Calculating the grain size distribution for algorithm: {algorithm}")
 
         #create dataframe of zeroes to store particle count and mass
-        gsd = pd.DataFrame(np.zeros((4,15)),index=['count', 'mass', 'fraction', 'cumulative'], columns=['pan', '0.5', '0.71', '1', '1.4', '2', '2.83',
-                                                                               '4', '5.6', '8', '11.3', '16', '22.6', '32.3', '45'])        
+        gsd = pd.DataFrame(np.zeros((len(self.phi_fraction),4)),index=self.phi_fraction,
+                                            columns = ['count', 'mass', 'fraction', 'cumulative'])        
 
         #loop through particles and sort them into the gsd bins
         for index in range(len(linked_particles)):
@@ -116,81 +122,122 @@ class Particle_Extractor:
             grain_mass = linked_particles.loc[index]['mass']
 
             if grain_size < 0.5:
-                gsd.loc['count','pan'] += 1 
-                gsd.loc['mass','pan'] += grain_mass
+                gsd.loc['0.5','count'] += 1 
+                gsd.loc['0.5','mass'] += grain_mass
 
             elif grain_size < 0.71:
-                gsd.loc['count','0.5'] += 1 
-                gsd.loc['mass','0.5'] += grain_mass
+                gsd.loc['0.71','count'] += 1 
+                gsd.loc['0.71','mass'] += grain_mass
 
             elif grain_size < 1:
-                gsd.loc['count','0.71'] += 1 
-                gsd.loc['mass','0.71'] += grain_mass
+                gsd.loc['1.0','count'] += 1 
+                gsd.loc['1.0','mass'] += grain_mass
             
             elif grain_size < 1.4:
-                gsd.loc['count','1'] += 1 
-                gsd.loc['mass','1'] += grain_mass
+                gsd.loc['1.4','count'] += 1 
+                gsd.loc['1.4','mass'] += grain_mass
 
             elif grain_size < 2:
-                gsd.loc['count','1.4'] += 1 
-                gsd.loc['mass','1.4'] += grain_mass
+                gsd.loc['2.0','count'] += 1 
+                gsd.loc['2.0','mass'] += grain_mass
 
             elif grain_size < 2.83:
-                gsd.loc['count','2'] += 1 
-                gsd.loc['mass','2'] += grain_mass
+                gsd.loc['2.83','count'] += 1 
+                gsd.loc['2.83','mass'] += grain_mass
 
             elif grain_size < 4:
-                gsd.loc['count','2.83'] += 1 
-                gsd.loc['mass','2.83'] += grain_mass
+                gsd.loc['4.0','count'] += 1 
+                gsd.loc['4.0','mass'] += grain_mass
 
             elif grain_size < 5.6:
-                gsd.loc['count','4'] += 1 
-                gsd.loc['mass','4'] += grain_mass
+                gsd.loc['5.6','count'] += 1 
+                gsd.loc['5.6','mass'] += grain_mass
 
             elif grain_size < 8:
-                gsd.loc['count','5.6'] += 1 
-                gsd.loc['mass','5.6'] += grain_mass
+                gsd.loc['8.0','count'] += 1 
+                gsd.loc['8.0','mass'] += grain_mass
 
             elif grain_size < 11.3:
-                gsd.loc['count','8'] += 1 
-                gsd.loc['mass','8'] += grain_mass
+                gsd.loc['11.3','count'] += 1 
+                gsd.loc['11.3','mass'] += grain_mass
 
             elif grain_size < 16:
-                gsd.loc['count','11.3'] += 1 
-                gsd.loc['mass','11.3'] += grain_mass
+                gsd.loc['16.0','count'] += 1 
+                gsd.loc['16.0','mass'] += grain_mass
 
             elif grain_size < 22.6:
-                gsd.loc['count','16'] += 1 
-                gsd.loc['mass','16'] += grain_mass
+                gsd.loc['22.6','count'] += 1 
+                gsd.loc['22.6','mass'] += grain_mass
 
             elif grain_size < 32.3:
-                gsd.loc['count','22.6'] += 1 
-                gsd.loc['mass','22.6'] += grain_mass
+                gsd.loc['32.3','count'] += 1 
+                gsd.loc['32.3','mass'] += grain_mass
 
             elif grain_size < 45:
-                gsd.loc['count','32.3'] += 1 
-                gsd.loc['mass','32.3'] += grain_mass
+                gsd.loc['45.0','count'] += 1 
+                gsd.loc['45.0','mass'] += grain_mass
 
             else:
-                gsd.loc['count','45'] += 1 
-                gsd.loc['mass','45'] += grain_mass
+                gsd.loc['64.0','count'] += 1 
+                gsd.loc['64.0','mass'] += grain_mass
 
         #finding the total mass of all transported material
-        total_mass = gsd.loc['mass'].sum()
+        total_mass = gsd['mass'].sum()
 
         #initializing value for looping
-        prev_col = 'pan'
+        prev_ind = '0.5'
 
         #calculating the fraction of each grain size
-        for col in gsd.columns:               
-            gsd.loc['fraction', col] = gsd.loc['mass', col] / total_mass
-            gsd.loc['cumulative', col] = gsd.loc['fraction', col] + gsd.loc['cumulative', prev_col]
-            prev_col = col
+        for ind in gsd.index:               
+            gsd.loc[ind, 'fraction'] = gsd.loc[ind, 'mass'] / total_mass
+            gsd.loc[ind, 'cumulative'] = gsd.loc[ind, 'fraction'] + gsd.loc[prev_ind, 'cumulative']
+            prev_ind = ind
 
         #logging that gsd calculation is complete
         logger.info("Grain size distribution calculation complete.")
 
         return gsd
+    
+    def calc_Di(self, gsd, algorithm):
+         
+        #logging that the grain size Di calcualtions have started
+        logger.info(f"Starting to calculate the grain size Di for algorithm: {algorithm}")
+
+        #creating array to store percentage values
+        percentages = np.zeros(len(gsd))
+
+        #store cumulative fraction percentages in descending order
+        percentages = gsd['cumulative'][::-1] * 100
+
+        #store phi fractions in descending order
+        phi_frac = self.phi_fraction[::-1]
+
+        print(percentages)
+
+        #Creating columns for the Di dataframe
+        Di_cols = []
+        for ii in self.Di_percentile:
+            Di_cols.append(str(ii))
+
+        #creating array to store Di values
+        Di = pd.DataFrame(np.zeros((1,len(Di_cols))), columns = Di_cols)
+
+        #for each target percentile loop through the cumulative fraction
+        for m in range(len(Di_cols)):
+            for kk in range(gsd.shape[0]-1):
+                if (percentages[kk] >= self.Di_percentile[m]) and (percentages[kk + 1] <= self.Di_percentile[m]):
+                    print(f"target percentile {self.Di_percentile[m]}")
+                    print(percentages[kk])
+                    print(Di_cols[m])
+                    Di.loc[0, Di_cols[m]] = np.exp(np.log(float(phi_frac[kk])) + (np.log(float(phi_frac[kk + 1])) - np.log(float(phi_frac[kk]))) / 
+                        (percentages[kk + 1] - percentages[kk]) * (self.Di_percentile[m] - percentages[kk]))
+
+        print(Di)
+
+        #logging that the grain size Di calcualtions have started
+        logger.info("Grain Size Di calculation complete")
+
+        return Di
     
     def transport_rate(self, linked_particles, algorithm):
         
@@ -231,13 +278,16 @@ class Particle_Extractor:
 
         return instant_rate, moving_avg
     
-    def export_data(self, gsd, instant_rate, moving_avg, algorithm):
+    def export_data(self, gsd, Di, instant_rate, moving_avg, algorithm):
         
         #export gsd csv
         gsd.to_csv(f"{self.c['output']['path']}/{algorithm}_gsd.csv")
 
+        #export Di csv
+        Di.to_csv(f"{self.c['output']['path']}/{algorithm}_Di.csv")
+
         #plotting gsd histogram
-        plt.bar(gsd.columns, gsd.loc['fraction'])
+        plt.bar(gsd.index, gsd['fraction'])
         plt.ylabel("Fraction")
         plt.xlabel("Retaining Sieve Size")
         plt.title(f"Grain Size Distribution of {self.c['config']['run_name']} ({algorithm})")
@@ -245,7 +295,7 @@ class Particle_Extractor:
         plt.clf()
         
         #plotting cumulative gsd histogram
-        plt.plot(gsd.columns[1:], gsd.loc['cumulative'][1:])
+        plt.plot(gsd.index, gsd['cumulative'])
         plt.ylabel("Fraction")
         plt.xlabel("Retaining Sieve Size")
         plt.title(f"Cumulative Grain Size Distribution of {self.c['config']['run_name']} ({algorithm})")
@@ -277,15 +327,17 @@ class Particle_Extractor:
             #bin sediment into grain sizes
             gsd = self.calc_gsd(linked_particles, algorithm)
 
+            #calculating the grain size Di
+            Di = self.calc_Di(gsd, algorithm)
+
             #calculating sediment transport rate
             instant_rate, moving_avg = self.transport_rate(linked_particles, algorithm)
 
             #TODO save csv of grain size distribution & D50, D90, etc. 
-            self.export_data(gsd, instant_rate, moving_avg, algorithm)
+            self.export_data(gsd, Di, instant_rate, moving_avg, algorithm)
 
             print(f"Finished processing {algorithm} data")
 
 
 
         #TODO figure out how to calculate D90, D84, etc. from the GSD
-        #TODO add logging to show users that code is still running
