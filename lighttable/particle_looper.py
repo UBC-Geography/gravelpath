@@ -56,12 +56,30 @@ class Particle_Loop:
         self.max_cost = c["cost_parameters"]["max_cost"]
         self.max_frames = c["cost_parameters"]["max_frames"]
 
+        #loading the correct filters
+        self.filters = c["particle_linker"]["algorithms"]
+
+        #importing the relevant linking filters
+        for filter in self.filters:
+            if filter == "No_Filter":
+                from lighttable.particle_linkers.No_Filter import NoFilter
+                no_filter = NoFilter(self.config)
+            if filter == "Narrow_Filter":
+                from lighttable.particle_linkers.Narrow_Filter import NarrowFilter
+                narrow_filter = NarrowFilter(self.config)
+            if filter == "Simple_LAP":
+                from lighttable.particle_linkers.Kalman_Filter import SimpleLAP
+                simple_filter = SimpleLAP(self.config)
+            if filter == "Kalman_Filter":
+                from lighttable.particle_linkers.Kalman_Filter import KalmanFilter
+                kalman_filter = KalmanFilter(self.config)
+
         # load calibration image
         # self.img_cal = self.load_image_gray(
         #     Path(c["images"]["file_calibration"]), crop=False
         # )
 
-        # self.
+        # 
 
     def extract_particles(self, db_file, image_frame, particle_df):
         # connecting to the database
@@ -76,7 +94,7 @@ class Particle_Loop:
 
         # extract x and y positions of particles
         cur.execute(
-            f"SELECT x,y,area,eccentricity FROM particles WHERE (image = '{image_frame.as_posix()}')"
+            f"SELECT x,y,area FROM particles WHERE (image = '{image_frame.as_posix()}')"
         )
 
         # saving list of lists of data extracted
@@ -323,107 +341,108 @@ class Particle_Loop:
         #need pixel length for accurate plotting
         pixel_length = 15 / 45
 
-        print("starting to link the particles together")
+        for filter in self.filters:
+            print(f"starting to link the particles togethe using {filter}")
 
-        for image_path in images:
-            particle_properties = self.extract_particles(
-                self.db_file, image_path, recent_df
-            )
-            # print(particle_properties)
-
-            # saving image time so it doesn't need to be done each time
-            img_time = float(image_path.stem)
-
-            # adding data to the data frame if its empty
-            if recent_df.empty:
-                for pp in range(len(particle_properties)):
-                    recent_df.loc[pp] = [
-                        uuid.uuid4(),
-                        img_time,
-                        int(particle_properties[pp][0]),
-                        int(particle_properties[pp][1]),
-                        particle_properties[pp][2],
-                        particle_properties[pp][3],
-                        img_time,
-                        int(particle_properties[pp][0]),
-                        int(particle_properties[pp][1]),
-                        1,
-                    ]
-
-                print(f"{current_frame} was empty")
-
-            else:
-                recent_df = self.linking_particles(
-                    recent_df, particle_properties, current_frame, img_time
+            for image_path in images:
+                particle_properties = self.extract_particles(
+                    self.db_file, image_path, recent_df
                 )
-            current_frame += 1
-            frame_count += 1
+                # print(particle_properties)
 
-            # for every second of the experiment, print the fps and time remaining
-            if np.floor(img_time) != np.floor(time_before):
-                toc = time.perf_counter()
-                fps = frame_count / (toc - tic)
-                logger.info(
-                    f"{img_time}, fps: {fps:.2f}, total frames: {current_frame}/{frame_count_total}, time left: {((frame_count_total - current_frame) / fps) / 60:.2f} min"
-                )
-                tic = time.perf_counter()
-                frame_count = 0
+                # saving image time so it doesn't need to be done each time
+                img_time = float(image_path.stem)
+
+                # adding data to the data frame if its empty
+                if recent_df.empty:
+                    for pp in range(len(particle_properties)):
+                        recent_df.loc[pp] = [
+                            uuid.uuid4(),
+                            img_time,
+                            int(particle_properties[pp][0]),
+                            int(particle_properties[pp][1]),
+                            particle_properties[pp][2],
+                            particle_properties[pp][3],
+                            img_time,
+                            int(particle_properties[pp][0]),
+                            int(particle_properties[pp][1]),
+                            1,
+                        ]
+
+                    print(f"{current_frame} was empty")
+
+                else:
+                    recent_df = self.linking_particles(
+                        recent_df, particle_properties, current_frame, img_time
+                    )
+                current_frame += 1
+                frame_count += 1
+
+                # for every second of the experiment, print the fps and time remaining
+                if np.floor(img_time) != np.floor(time_before):
+                    toc = time.perf_counter()
+                    fps = frame_count / (toc - tic)
+                    logger.info(
+                        f"{img_time}, fps: {fps:.2f}, total frames: {current_frame}/{frame_count_total}, time left: {((frame_count_total - current_frame) / fps) / 60:.2f} min"
+                    )
+                    tic = time.perf_counter()
+                    frame_count = 0
 
 
-            # displays overlay of particle if "debug" is True, else not needed
-            if self.debug:
+                # displays overlay of particle if "debug" is True, else not needed
+                if self.debug:
 
-                if prev_df is not None:
-                    
-                    # print(prev_df)
-                    # print(recent_df)
+                    if prev_df is not None:
+                        
+                        # print(prev_df)
+                        # print(recent_df)
 
-                    #create a black image the same size as the original image
-                    blank_image = np.zeros((img_row, img_col, img_dim))
+                        #create a black image the same size as the original image
+                        blank_image = np.zeros((img_row, img_col, img_dim))
 
-                    #plot the particles that weren't found in the recent dataframe on the blank image as red particles
-                    lost_particles = prev_df[~prev_df['UID'].isin(recent_df['UID'])]
+                        #plot the particles that weren't found in the recent dataframe on the blank image as red particles
+                        lost_particles = prev_df[~prev_df['UID'].isin(recent_df['UID'])]
 
-                    for index, particle in lost_particles.iterrows():
-                        cv2.circle(blank_image, (particle['x_final'], particle['y_final']), int((np.sqrt(particle['area']/np.pi))/(pixel_length**2)), (0,0,255), -1)
-
-                    #plot the new particles that weren't in the previous dataframe on the blank image as green partilces
-                    new_particles = recent_df[~recent_df['UID'].isin(prev_df['UID'])]
-
-                    for index, particle in new_particles.iterrows():
-                        cv2.circle(blank_image, (particle['x_final'], particle['y_final']), int((np.sqrt(particle['area']/np.pi))/(pixel_length**2)), (0,255, 0), -1)
-
-                    #plot the connected particles
-                    linked_partilces = recent_df[recent_df['UID'].isin(prev_df['UID'])]
-
-                    for index, particle in linked_partilces.iterrows():
-                        if particle['count'] > 1:
+                        for index, particle in lost_particles.iterrows():
                             cv2.circle(blank_image, (particle['x_final'], particle['y_final']), int((np.sqrt(particle['area']/np.pi))/(pixel_length**2)), (0,0,255), -1)
-                        else:
-                            cv2.circle(blank_image, (particle['x_final'], particle['y_final']), int((np.sqrt(particle['area']/np.pi))/(pixel_length**2)), (255, 0, 0), -1)
-                            UID = particle['UID']
-                            # print("This is the linked particle")
-                            # print(prev_df[(prev_df['UID'] == UID)])
-                    
+
+                        #plot the new particles that weren't in the previous dataframe on the blank image as green partilces
+                        new_particles = recent_df[~recent_df['UID'].isin(prev_df['UID'])]
+
+                        for index, particle in new_particles.iterrows():
+                            cv2.circle(blank_image, (particle['x_final'], particle['y_final']), int((np.sqrt(particle['area']/np.pi))/(pixel_length**2)), (0,255, 0), -1)
+
+                        #plot the connected particles
+                        linked_partilces = recent_df[recent_df['UID'].isin(prev_df['UID'])]
+
+                        for index, particle in linked_partilces.iterrows():
+                            if particle['count'] > 1:
+                                cv2.circle(blank_image, (particle['x_final'], particle['y_final']), int((np.sqrt(particle['area']/np.pi))/(pixel_length**2)), (0,0,255), -1)
+                            else:
+                                cv2.circle(blank_image, (particle['x_final'], particle['y_final']), int((np.sqrt(particle['area']/np.pi))/(pixel_length**2)), (255, 0, 0), -1)
+                                UID = particle['UID']
+                                # print("This is the linked particle")
+                                # print(prev_df[(prev_df['UID'] == UID)])
+                        
 
 
-                    # display the image
-                    cv2.imshow("tracked particles", blank_image)
+                        # display the image
+                        cv2.imshow("tracked particles", blank_image)
 
-                    key = cv2.waitKey(1000)
-                    cv2.waitKey(0)
+                        key = cv2.waitKey(1000)
+                        cv2.waitKey(0)
 
-                    # input("Press Enter to see next image")
+                        # input("Press Enter to see next image")
 
-                if (frame_count) > int(
-                    self.c["debugging"]["images_to_view"]
-                ):
-                    cv2.destroyAllWindows()
-                    cv2.waitKey(1)
-                    self.debug = False
+                    if (frame_count) > int(
+                        self.c["debugging"]["images_to_view"]
+                    ):
+                        cv2.destroyAllWindows()
+                        cv2.waitKey(1)
+                        self.debug = False
 
-            time_before = img_time
-            prev_df = recent_df
+                time_before = img_time
+                prev_df = recent_df
 
-        # tracking any particles left in the dataframe after finished looking through all the images
-        self.track_particles(self.db_file, recent_df)
+            # tracking any particles left in the dataframe after finished looking through all the images
+            self.track_particles(self.db_file, recent_df)
