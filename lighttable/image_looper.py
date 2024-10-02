@@ -4,6 +4,8 @@
 # 2024-03-10: Tobias Mueller, initial version
 # 2024-09-17: Sol Leader-cole, adjusted version
 
+#TODO Add warning to preent people from overwriting the sqlite database if images have already been processed
+
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -17,16 +19,15 @@ import cv2
 import numpy as np
 import skimage
 
-# from skimage.transform import warp
-# from skimage.registration import optical_flow_tvl1, optical_flow_ilk
-
+#storing results
 import pandas as pd
 
 # plotting
 from matplotlib import pyplot as plt
 
-# particle linking
-#from lighttable.particle_linker.simple_filter import ParticleLinker
+#warning
+import tkinter as tk
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +63,72 @@ class ImageLooper:
         # setting the pixel value threshold for particles to be detected
         self.bin_threshold = config["cost_parameters"]["binary_threshold"]
 
+    def show_warning_popup(self):
+        #Warns the user that if they continue they will overwrite the existing sqlite database
+
+        #create temporary pop-up window
+        popup = tk.Toplevel()
+        popup.title("Warning")
+
+        #button to continue operation
+        def continue_button_click():
+            popup.quit()
+            popup.destroy()
+            
+
+        #button to stop operation
+        def stop_button_click():
+            print("Operation Cancelled")
+            sys.exit()
+
+        #description of the warning
+        label = tk.Label(popup, anchor = "center", wraplength= 400, 
+                         text="If you continue you will overwrite the existing SQlite database and lose any stored data. \n Do you still wish to continue?")
+        label.grid(row =0, column = 0, columnspan=2, pady=10, sticky='nsew')
+
+        #creaing a frame to hold the buttons
+        button_frame = tk.Frame(popup)
+        button_frame.grid(row=1, column=0, columnspan=2, pady=10, sticky='nsew')
+
+        #creating a button to close the warning
+        continue_button = tk.Button(button_frame, text="Erase Existing SQlite Database", command=continue_button_click)
+        continue_button.pack(side=tk.RIGHT, padx=10)
+
+        #creating a button to stop the code
+        stop_button = tk.Button(button_frame, text="Cancel", command=stop_button_click)
+        stop_button.pack(side=tk.LEFT, padx=10)
+
+        #configuring grid
+        popup.grid_rowconfigure(0, weight=1)
+        popup.grid_rowconfigure(1, weight=1)
+        popup.grid_columnconfigure(0, weight=1)
+        popup.grid_columnconfigure(1, weight=1)
+
+        # Center the popup window
+        popup.geometry("500x150+500+300")
+
+        # Make the pop-up modal (must interact with it before returning to main code)
+        popup.grab_set()
+
+        # Run the pop-up window's event loop
+        popup.mainloop()
+
+
     def create_db(self, db_file):
+        
+        #check if tables already exist in the sqlite dabase before 
+        def table_exists(db, table_name):
+            cursor = db.cursor()
+            cursor.execute("""
+                SELECT name FROM sqlite_master WHERE type='table' AND name=?;
+                 """, (table_name,))
+            return cursor.fetchone() is not None
 
         db = sqlite3.connect(db_file)
+    
+        #if a table exists show user a warning before deleting existing data
+        if table_exists(db, "images"):
+            self.show_warning_popup()
 
         # clear database
         db.execute("DROP TABLE IF EXISTS particles")
@@ -140,7 +204,7 @@ class ImageLooper:
         for particle in particles:
             # add to sqlite database
             db.execute(
-                "INSERT INTO particles (image, time, x, y, width, height, area) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO particles (image, time, x, y, width, height, area) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     image_path.as_posix(),
                     float(image_path.stem),
@@ -241,7 +305,7 @@ class ImageLooper:
         df_part_prev = None
 
         # loop through images
-        for image_path in images:
+        for image_path in images[0:10000]:
             img_time = float(image_path.stem)
             img, df_part_now = self.analyze_image(
                 self.db_file, image_path, img_bg, pixel_length
