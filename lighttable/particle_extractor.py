@@ -178,7 +178,7 @@ class Particle_Extractor:
 
         return Di
     
-    def test_transport_rate(self, linked_particles, algorithm):
+    def transport_rate(self, linked_particles, algorithm):
 
         #logging that sediment transport rate calculations have started
         logger.info(f"Starting to calculate the sediment transport rate for algorithm: {algorithm}")
@@ -209,46 +209,9 @@ class Particle_Extractor:
         for index, array in enumerate(np.split(second_transport, min_index)):
             minute_transport[index] = np.mean(array)
 
-        return second_transport, minute_transport, transport_bins[:-1] - first_frame, np.append(min_index, last_frame - first_frame)
-
-    def transport_rate(self, linked_particles, algorithm):
-        
-        #logging that sediment transport rate calculations have started
-        logger.info(f"Starting to calculate the sediment transport rate for algorithm: {algorithm}")
-
-        #initialize list to store the moving average & instantaneous transport rate
-        moving_avg = []
-        instant_rate = []
-
-        #finding the time in seconds of the first frame
-        time_stamp = np.floor(linked_particles.loc[0]['first_frame'])
-
-        #initialising value to keep current transport rate
-        current_rate = 0
-
-        for index in range(len(linked_particles)):
-            if np.floor(linked_particles.loc[index]['first_frame']) == time_stamp:
-                #adding information to the transport rate
-                current_rate += linked_particles.loc[index]['mass']
-
-            else: 
-                #adding info to the lists
-                instant_rate.append(current_rate)
-                moving_avg.append(np.mean(instant_rate))
-
-                #updating time stamp for the new second
-                time_stamp = np.floor(linked_particles.loc[index]['first_frame'])
-
-                #adding data to the transport rate
-                current_rate = linked_particles.loc[index]['mass']
-
-        #adding final information to the lists
-        instant_rate.append(current_rate)
-        moving_avg.append(np.mean(instant_rate))
-
         logger.info("Sediment transport rate calculations complete")
 
-        return instant_rate, moving_avg
+        return second_transport, minute_transport, transport_bins[:-1] - first_frame, np.append(min_index, last_frame - first_frame)
     
     def export_data(self, gsd, Di, instant_rate, moving_avg, seconds, minutes, algorithm):
         
@@ -273,7 +236,6 @@ class Particle_Extractor:
         plt.title(f"Cumulative Grain Size Distribution of {self.c['config']['run_name']} ({algorithm})")
         plt.savefig(f"{self.c['output']['path']}/{algorithm}_cumulative_grain_size_distribution.pdf")
         plt.clf()
-
 
         #plotting the sediment transport rate
         plt.plot(seconds, instant_rate, color = 'blue', label = 'Instantaneous Sediment Transport Rate')
@@ -303,13 +265,9 @@ class Particle_Extractor:
             Di = self.calc_Di(gsd, algorithm)
 
             #calculating sediment transport rate
-            instant_rate, moving_avg, seconds, minutes = self.test_transport_rate(linked_particles, algorithm)
+            instant_rate, moving_avg, seconds, minutes = self.transport_rate(linked_particles, algorithm)
 
-            #TODO save csv of grain size distribution & D50, D90, etc. 
+            #export the data
             self.export_data(gsd, Di, instant_rate, moving_avg, seconds, minutes, algorithm)
 
             print(f"Finished processing {algorithm} data")
-
-
-
-        #TODO figure out how to calculate D90, D84, etc. from the GSD
