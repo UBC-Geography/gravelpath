@@ -87,7 +87,7 @@ class Particle_Extractor:
             linked_particles.sort_values("first_frame", ascending=False, inplace=True)
 
         return linked_particles
-    
+
     def calc_grain_size(self, linked_particles, algorithm):
         
         #logging that processing started
@@ -112,76 +112,22 @@ class Particle_Extractor:
         #logging that gsd calculation has started
         logger.info(f"Calculating the grain size distribution for algorithm: {algorithm}")
 
+        #create list of values to bin data by
+        gsd_bins = [0, 0.5, 0.71, 1, 1.4, 2, 2.83, 4, 5.6, 8, 11.3, 16, 22.6, 32.3, 45, 100]
+        
+        #bin particles based on their values
+        linked_particles['binned'] = pd.cut(linked_particles['grain_size'], bins = gsd_bins, labels = self.phi_fraction, include_lowest=True)
+
         #create dataframe of zeroes to store particle count and mass
         gsd = pd.DataFrame(np.zeros((len(self.phi_fraction),4)),index=self.phi_fraction,
-                                            columns = ['count', 'mass', 'fraction', 'cumulative'])        
+                                            columns = ['count', 'mass', 'fraction', 'cumulative']) 
+        
+        for index in gsd.index:
+            gsd.loc[index, 'mass'] = linked_particles['mass'][linked_particles['binned'] == index].sum()
+            gsd.loc[index, 'count'] = (linked_particles['binned']==index).sum()
 
-        #loop through particles and sort them into the gsd bins
-        for index in range(len(linked_particles)):
-            grain_size = linked_particles.loc[index]['grain_size']
-            grain_mass = linked_particles.loc[index]['mass']
-
-            if grain_size < 0.5:
-                gsd.loc['0.5','count'] += 1 
-                gsd.loc['0.5','mass'] += grain_mass
-
-            elif grain_size < 0.71:
-                gsd.loc['0.71','count'] += 1 
-                gsd.loc['0.71','mass'] += grain_mass
-
-            elif grain_size < 1:
-                gsd.loc['1.0','count'] += 1 
-                gsd.loc['1.0','mass'] += grain_mass
-            
-            elif grain_size < 1.4:
-                gsd.loc['1.4','count'] += 1 
-                gsd.loc['1.4','mass'] += grain_mass
-
-            elif grain_size < 2:
-                gsd.loc['2.0','count'] += 1 
-                gsd.loc['2.0','mass'] += grain_mass
-
-            elif grain_size < 2.83:
-                gsd.loc['2.83','count'] += 1 
-                gsd.loc['2.83','mass'] += grain_mass
-
-            elif grain_size < 4:
-                gsd.loc['4.0','count'] += 1 
-                gsd.loc['4.0','mass'] += grain_mass
-
-            elif grain_size < 5.6:
-                gsd.loc['5.6','count'] += 1 
-                gsd.loc['5.6','mass'] += grain_mass
-
-            elif grain_size < 8:
-                gsd.loc['8.0','count'] += 1 
-                gsd.loc['8.0','mass'] += grain_mass
-
-            elif grain_size < 11.3:
-                gsd.loc['11.3','count'] += 1 
-                gsd.loc['11.3','mass'] += grain_mass
-
-            elif grain_size < 16:
-                gsd.loc['16.0','count'] += 1 
-                gsd.loc['16.0','mass'] += grain_mass
-
-            elif grain_size < 22.6:
-                gsd.loc['22.6','count'] += 1 
-                gsd.loc['22.6','mass'] += grain_mass
-
-            elif grain_size < 32.3:
-                gsd.loc['32.3','count'] += 1 
-                gsd.loc['32.3','mass'] += grain_mass
-
-            elif grain_size < 45:
-                gsd.loc['45.0','count'] += 1 
-                gsd.loc['45.0','mass'] += grain_mass
-
-            else:
-                gsd.loc['64.0','count'] += 1 
-                gsd.loc['64.0','mass'] += grain_mass
-
-        #finding the total mass of all transported material
+        
+       #finding the total mass of all transported material
         total_mass = gsd['mass'].sum()
 
         #initializing value for looping
@@ -212,8 +158,6 @@ class Particle_Extractor:
         #store phi fractions in descending order
         phi_frac = self.phi_fraction[::-1]
 
-        print(percentages)
-
         #Creating columns for the Di dataframe
         Di_cols = []
         for ii in self.Di_percentile:
@@ -226,19 +170,47 @@ class Particle_Extractor:
         for m in range(len(Di_cols)):
             for kk in range(gsd.shape[0]-1):
                 if (percentages[kk] >= self.Di_percentile[m]) and (percentages[kk + 1] <= self.Di_percentile[m]):
-                    print(f"target percentile {self.Di_percentile[m]}")
-                    print(percentages[kk])
-                    print(Di_cols[m])
                     Di.loc[0, Di_cols[m]] = np.exp(np.log(float(phi_frac[kk])) + (np.log(float(phi_frac[kk + 1])) - np.log(float(phi_frac[kk]))) / 
                         (percentages[kk + 1] - percentages[kk]) * (self.Di_percentile[m] - percentages[kk]))
-
-        print(Di)
 
         #logging that the grain size Di calcualtions have started
         logger.info("Grain Size Di calculation complete")
 
         return Di
     
+    def test_transport_rate(self, linked_particles, algorithm):
+
+        #logging that sediment transport rate calculations have started
+        logger.info(f"Starting to calculate the sediment transport rate for algorithm: {algorithm}")
+
+        #defining the first and last frames
+        first_frame = int(np.floor(linked_particles['first_frame'].min()))
+        last_frame = int(np.floor(linked_particles['first_frame'].max()))
+
+        #create list of bins to store the data into bins
+        transport_bins = np.arange(first_frame, last_frame + 2, 1)
+
+        #bin particles based on their values
+        linked_particles['second'] = pd.cut(linked_particles['first_frame'], bins = transport_bins, labels=transport_bins[:-1], include_lowest=True)
+
+        #TODO write the code to also calculate the GSD and Di for the second being examined
+        #empty dataframes to store the transport data
+        second_transport = np.zeros(last_frame - first_frame + 1)
+        minute_transport = np.zeros(int(len(second_transport)/60 + 1))
+
+        #loops through the particles and sums the mass of transported material for each second
+        for index, second in enumerate(transport_bins[:-1]):
+            second_transport[index] = linked_particles['mass'][linked_particles['second'] == second].sum()
+
+        #list of indexes to split the second transport rate by
+        min_index = np.arange(59, last_frame-first_frame + 1, 60)
+
+        #splits the second transport into minutes and then averages those
+        for index, array in enumerate(np.split(second_transport, min_index)):
+            minute_transport[index] = np.mean(array)
+
+        return second_transport, minute_transport, transport_bins[:-1] - first_frame, np.append(min_index, last_frame - first_frame)
+
     def transport_rate(self, linked_particles, algorithm):
         
         #logging that sediment transport rate calculations have started
@@ -278,7 +250,7 @@ class Particle_Extractor:
 
         return instant_rate, moving_avg
     
-    def export_data(self, gsd, Di, instant_rate, moving_avg, algorithm):
+    def export_data(self, gsd, Di, instant_rate, moving_avg, seconds, minutes, algorithm):
         
         #export gsd csv
         gsd.to_csv(f"{self.c['output']['path']}/{algorithm}_gsd.csv")
@@ -304,8 +276,8 @@ class Particle_Extractor:
 
 
         #plotting the sediment transport rate
-        plt.plot(instant_rate, color = 'blue', label = 'Instantaneous Sediment Transport Rate')
-        plt.plot(moving_avg, color = 'r', label = 'Moving Average')
+        plt.plot(seconds, instant_rate, color = 'blue', label = 'Instantaneous Sediment Transport Rate')
+        plt.plot(minutes, moving_avg, color = 'r', label = 'Moving Average')
         plt.ylabel("Sediment Transport Rate (g/s)")
         plt.yscale("log")
         plt.xlabel("Time (s)")
@@ -331,10 +303,10 @@ class Particle_Extractor:
             Di = self.calc_Di(gsd, algorithm)
 
             #calculating sediment transport rate
-            instant_rate, moving_avg = self.transport_rate(linked_particles, algorithm)
+            instant_rate, moving_avg, seconds, minutes = self.test_transport_rate(linked_particles, algorithm)
 
             #TODO save csv of grain size distribution & D50, D90, etc. 
-            self.export_data(gsd, Di, instant_rate, moving_avg, algorithm)
+            self.export_data(gsd, Di, instant_rate, moving_avg, seconds, minutes, algorithm)
 
             print(f"Finished processing {algorithm} data")
 
