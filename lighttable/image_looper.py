@@ -44,6 +44,10 @@ class ImageLooper:
             config["output"]["path"],
             f'{config["config"]["run_name"]}{config["output"]["file_db_append"]}',
         )
+
+        #saving run name
+        self.run_name = config["config"]["run_name"]
+
         # create database
         self.create_db(self.db_file)
 
@@ -305,7 +309,7 @@ class ImageLooper:
         df_part_prev = None
 
         # loop through images
-        for image_path in images[0:10000]:
+        for image_path in images:
             img_time = float(image_path.stem)
             img, df_part_now = self.analyze_image(
                 self.db_file, image_path, img_bg, pixel_length
@@ -319,7 +323,7 @@ class ImageLooper:
                 toc = time.perf_counter()
                 fps = frame_count / (toc - tic)
                 logger.info(
-                    f"{img_time}, fps: {fps:.2f}, total frames: {frame_count_total}/{len(self.images)}, time left: {((len(self.images) - frame_count_total) / fps) / 60:.2f} min"
+                    f"{self.run_name}, {img_time}, fps: {fps:.2f}, total frames: {frame_count_total}/{len(self.images)}, time left: {((len(self.images) - frame_count_total) / fps) / 60:.2f} min"
                 )
                 tic = time.perf_counter()
                 frame_count = 0

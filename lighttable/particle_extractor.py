@@ -281,4 +281,4 @@ class Particle_Extractor:
             #export the data
             self.export_data(gsd, Di, instant_rate, moving_avg, seconds, minutes, algorithm)
 
-            print(f"Finished processing {algorithm} data")
+            print(f"Finished processing {self.run_name}, {algorithm} data")

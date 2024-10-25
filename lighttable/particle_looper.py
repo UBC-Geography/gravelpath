@@ -42,6 +42,9 @@ class Particle_Loop:
             f'{c["config"]["run_name"]}{c["output"]["file_db_append"]}',
         )
 
+        # saving the run name
+        self.run_name = c["config"]["run_name"]
+
         # TODO determine if the number of frames needs to initialized here
         # total number of frames needed to look over
         # self.total_frames = c["camera"]["frames"] - 1
@@ -383,7 +386,7 @@ class Particle_Loop:
                     toc = time.perf_counter()
                     fps = frame_count / (toc - tic)
                     logger.info(
-                        f"{img_time}, fps: {fps:.2f}, total frames: {current_frame}/{frame_count_total}, time left: {((frame_count_total - current_frame) / fps) / 60:.2f} min"
+                        f"{self.run_name}, {img_time}, fps: {fps:.2f}, total frames: {current_frame}/{frame_count_total}, time left: {((frame_count_total - current_frame) / fps) / 60:.2f} min"
                     )
                     tic = time.perf_counter()
                     frame_count = 0
