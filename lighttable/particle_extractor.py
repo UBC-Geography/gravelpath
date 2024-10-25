@@ -45,6 +45,9 @@ class Particle_Extractor:
         #loading the target percentiles
         self.Di_percentile = c['sediment']['percentiles']
 
+        #saving the run name
+        self.run_name = c['config']['run_name']
+
     def extract_data(self, db_file, algorithm):
         
         #logging that processing started
@@ -164,17 +167,19 @@ class Particle_Extractor:
             Di_cols.append(str(ii))
 
         #creating array to store Di values
-        Di = pd.DataFrame(np.zeros((1,len(Di_cols))), columns = Di_cols)
+        Di = pd.DataFrame(np.zeros((1,len(Di_cols))), columns = Di_cols, index= [self.run_name])
 
         #for each target percentile loop through the cumulative fraction
         for m in range(len(Di_cols)):
             for kk in range(gsd.shape[0]-1):
                 if (percentages[kk] >= self.Di_percentile[m]) and (percentages[kk + 1] <= self.Di_percentile[m]):
-                    Di.loc[0, Di_cols[m]] = np.exp(np.log(float(phi_frac[kk])) + (np.log(float(phi_frac[kk + 1])) - np.log(float(phi_frac[kk]))) / 
+                    Di.loc[self.run_name, Di_cols[m]] = np.exp(np.log(float(phi_frac[kk])) + (np.log(float(phi_frac[kk + 1])) - np.log(float(phi_frac[kk]))) / 
                         (percentages[kk + 1] - percentages[kk]) * (self.Di_percentile[m] - percentages[kk]))
 
         #logging that the grain size Di calcualtions have started
         logger.info("Grain Size Di calculation complete")
+
+        print(Di)
 
         return Di
     
@@ -211,7 +216,7 @@ class Particle_Extractor:
 
         logger.info("Sediment transport rate calculations complete")
 
-        return second_transport, minute_transport, transport_bins[:-1] - first_frame, np.append(min_index, last_frame - first_frame)
+        return second_transport, minute_transport, transport_bins[:-1] - first_frame + 1, np.append(min_index, last_frame - first_frame) + 1
     
     def export_data(self, gsd, Di, instant_rate, moving_avg, seconds, minutes, algorithm):
         
@@ -220,6 +225,12 @@ class Particle_Extractor:
 
         #export Di csv
         Di.to_csv(f"{self.c['output']['path']}/{algorithm}_Di.csv")
+
+        #export the sediment transport rate
+        second_transport = pd.DataFrame({'second': seconds, 'Mass (g)': instant_rate})
+        minute_transport = pd.DataFrame({'minute': minutes/60, 'Mass (g)': moving_avg})
+        second_transport.to_csv(f"{self.c['output']['path']}/{algorithm}_second_transport.csv")
+        minute_transport.to_csv(f"{self.c['output']['path']}/{algorithm}_minute_transport.csv")
 
         #plotting gsd histogram
         plt.bar(gsd.index, gsd['fraction'])
